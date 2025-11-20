@@ -1,13 +1,584 @@
+@import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700;800&display=swap');
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family: 'Quicksand', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  /* 梦幻棉花糖渐变背景 */
+  background: linear-gradient(-45deg, #ff9a9e, #fad0c4, #a1c4fd, #c2e9fb);
+  background-size: 400% 400%;
+  animation: gradientBG 15s ease infinite;
+  overflow: hidden;
+}
+
+@keyframes gradientBG {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
 }
 
 code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+}
+
+/* 玻璃态色彩系统 */
+:root {
+  /* 核心色板 */
+  --primary-gradient: linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%);
+  --accent-color: #4facfe;
+
+  /* 玻璃质感参数 */
+  --glass-bg: rgba(255, 255, 255, 0.65);
+  --glass-border-top: rgba(255, 255, 255, 0.85);
+  --glass-border-bottom: rgba(255, 255, 255, 0.2);
+  --shadow-soft: 0 20px 50px rgba(142, 197, 252, 0.25);
+
+  /* 文字颜色 */
+  --text-main: #2d3748;
+  --text-light: #718096;
+
+  /* 基础色彩 */
+  --primary: #4facfe;
+  --primary-hover: #3d8bfd;
+  --secondary: #64748b;
+  --background: transparent;
+  --surface: rgba(255, 255, 255, 0.65);
+  --surface-hover: rgba(255, 255, 255, 0.8);
+  --border: rgba(255, 255, 255, 0.4);
+  --text-primary: #2d3748;
+  --text-secondary: #718096;
+  --text-muted: #a0aec0;
+  --success: #2ecc71;
+  --warning: #feca57;
+  --error: #ff6b6b;
+  --online: #2ecc71;
+  --away: #f39c12;
+  --offline: #95a5a6;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --radius: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* 玻璃态应用容器 */
+.app-wrapper {
+  position: relative;
+  max-width: 1100px;
+  width: 100%;
+  height: 750px;
+}
+
+/* 流动光晕效果 */
+.app-wrapper::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  background: linear-gradient(45deg, #ff9a9e, #fad0c4, #a18cd1, #fbc2eb, #84fab0, #8fd3f4);
+  z-index: -1;
+  border-radius: var(--radius-xl);
+  background-size: 300%;
+  animation: borderGlow 8s linear infinite;
+  opacity: 0.6;
+  filter: blur(15px);
+}
+
+@keyframes borderGlow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* 玻璃态容器 */
+.glass-container {
+  background: var(--glass-bg);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-top: 1px solid var(--glass-border-top);
+  border-left: 1px solid var(--glass-border-top);
+  border-bottom: 1px solid var(--glass-border-bottom);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-soft);
+  position: relative;
+  overflow: hidden;
+}
+
+/* 噪点纹理层 */
+.glass-container::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 0.4;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
+}
+
+/* 基础组件 */
+.btn-primary {
+  background: var(--primary-gradient);
+  color: white;
+  border: none;
+  padding: 16px;
+  border-radius: var(--radius);
+  font-weight: 700;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  box-shadow: 0 8px 20px rgba(132, 250, 176, 0.3);
+  font-family: 'Quicksand', sans-serif;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 25px rgba(132, 250, 176, 0.4);
+}
+
+.btn-primary:active {
+  transform: scale(0.98);
+}
+
+.btn-secondary {
+  background: var(--surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  font-weight: 500;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-secondary:hover {
+  background: var(--surface-hover);
+  border-color: var(--primary);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border: none;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-ghost:hover {
+  background: var(--surface-hover);
+  color: var(--primary);
+}
+
+.input-field {
+  background: rgba(255, 255, 255, 0.2);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  color: var(--text-main);
+  padding: 16px 20px;
+  border-radius: var(--radius-lg);
+  font-size: 16px;
+  font-weight: 500;
+  width: 100%;
+  transition: all 0.3s ease;
+  outline: none;
+  font-family: 'Quicksand', sans-serif;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.1);
+}
+
+.input-field:focus {
+  background: rgba(255, 255, 255, 0.3);
+  border-color: rgba(132, 250, 176, 0.5);
+  box-shadow: 0 0 0 4px rgba(132, 250, 176, 0.15);
+}
+
+.input-field::placeholder {
+  color: rgba(45, 55, 72, 0.6);
+  font-weight: 400;
+}
+
+/* 消息气泡 */
+.message-bubble-sent {
+  background: linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%);
+  color: white;
+  border-radius: 18px 18px 4px 18px;
+  padding: 12px 16px;
+  font-size: 14px;
+  line-height: 1.5;
+  max-width: 280px;
+  word-wrap: break-word;
+  box-shadow: 0 4px 12px rgba(132, 250, 176, 0.2);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.message-bubble-received {
+  background: rgba(255, 255, 255, 0.25);
+  color: var(--text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 18px 18px 18px 4px;
+  padding: 12px 16px;
+  font-size: 14px;
+  line-height: 1.5;
+  max-width: 280px;
+  word-wrap: break-word;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* 状态指示器 */
+.status-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--surface);
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+}
+
+.status-online {
+  background: var(--online);
+}
+
+.status-away {
+  background: var(--away);
+}
+
+.status-offline {
+  background: var(--offline);
+}
+
+/* 动画 */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(-8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes messageSlide {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.slide-in {
+  animation: slideIn 0.3s ease-out;
+}
+
+.message-enter {
+  animation: messageSlide 0.3s ease-out;
+}
+
+/* 打字指示器 */
+.typing-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 18px 18px 18px 4px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.typing-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--text-muted);
+  border-radius: 50%;
+  animation: typingDot 1.4s infinite ease-in-out;
+}
+
+.typing-dot:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.typing-dot:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+@keyframes typingDot {
+  0%, 80%, 100% {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* 工具提示 */
+.tooltip {
+  position: relative;
+}
+
+.tooltip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--text-primary);
+  color: white;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+  margin-bottom: 4px;
+  z-index: 1000;
+}
+
+.tooltip:hover::after {
+  opacity: 1;
+}
+
+/* 头像 */
+.avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.avatar-sm {
+  width: 32px;
+  height: 32px;
+  font-size: 12px;
+}
+
+.avatar-lg {
+  width: 48px;
+  height: 48px;
+  font-size: 16px;
+}
+
+/* 卡片 */
+.card {
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  backdrop-filter: blur(20px);
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
+  transition: all 0.3s ease;
+}
+
+.card:hover {
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(132, 250, 176, 0.4);
+  box-shadow: 0 12px 40px 0 rgba(132, 250, 176, 0.2);
+  transform: translateY(-2px);
+}
+
+/* 徽章 */
+.badge {
+  background: var(--error);
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 10px;
+  min-width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+  body {
+    font-size: 14px;
+    padding: 10px;
+  }
+
+  .app-wrapper {
+    height: 100vh;
+    max-width: 100%;
+    border-radius: 0;
+  }
+
+  .message-bubble-sent,
+  .message-bubble-received {
+    max-width: 260px;
+    font-size: 13px;
+    padding: 10px 14px;
+  }
+
+  .input-field {
+    padding: 14px 16px;
+    font-size: 15px;
+  }
+
+  .btn-primary {
+    padding: 14px;
+    font-size: 15px;
+  }
+
+  .avatar {
+    width: 36px;
+    height: 36px;
+    font-size: 13px;
+  }
+
+  .avatar-sm {
+    width: 28px;
+    height: 28px;
+    font-size: 11px;
+  }
+
+  .avatar-lg {
+    width: 42px;
+    height: 42px;
+    font-size: 15px;
+  }
+
+  .glass-container {
+    border-radius: var(--radius-lg);
+    margin: 8px;
+  }
+
+  .card {
+    padding: 12px;
+    margin: 8px;
+  }
+}
+
+@media (max-width: 480px) {
+  body {
+    padding: 8px;
+  }
+
+  .message-bubble-sent,
+  .message-bubble-received {
+    max-width: 240px;
+    font-size: 12px;
+    padding: 8px 12px;
+  }
+
+  .input-field {
+    padding: 12px 14px;
+    font-size: 14px;
+  }
+
+  .btn-primary {
+    padding: 12px;
+    font-size: 14px;
+  }
+
+  .avatar {
+    width: 32px;
+    height: 32px;
+    font-size: 12px;
+  }
+
+  .avatar-sm {
+    width: 24px;
+    height: 24px;
+    font-size: 10px;
+  }
+
+  .avatar-lg {
+    width: 38px;
+    height: 38px;
+    font-size: 14px;
+  }
+
+  .typing-indicator {
+    padding: 10px 14px;
+  }
+
+  .typing-dot {
+    width: 6px;
+    height: 6px;
+  }
 }
