@@ -59,7 +59,11 @@ class SocketService {
     }
 
     onOnlineUsers(callback: (users: SocketUser[]) => void): void {
-        this.socket?.on('online_users', callback);
+        console.log('SocketService - Setting up online_users listener');
+        this.socket?.on('online_users', (users: SocketUser[]) => {
+            console.log('SocketService - online_users event received:', users.map((u: SocketUser) => u.displayName));
+            callback(users);
+        });
     }
 
     onUserStatusChanged(callback: (data: { userId: string; status: string }) => void): void {

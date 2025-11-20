@@ -45,8 +45,7 @@ type ChatAction =
   | { type: 'SET_TYPING_USERS'; payload: TypingUser[] }
   | { type: 'MARK_MESSAGES_READ'; payload: { chatId: string; userId: string } }
   | { type: 'USER_LEFT_GROUP'; payload: { chatId: string; userId: string } }
-  | { type: 'REMOVE_CHAT'; payload: string }
-  | { type: 'UPDATE_USER_INFO'; payload: { userId: string; userInfo: any } };
+  | { type: 'REMOVE_CHAT'; payload: string };
 
 // Helper function to convert object back to Map
 const parseChat = (chat: any): Chat => {
@@ -207,10 +206,6 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         currentChat: state.currentChat?.id === action.payload ? null : state.currentChat,
       };
 
-    case 'UPDATE_USER_INFO':
-      // 这个action主要用于通知组件更新用户信息缓存
-      return state;
-
     default:
       return state;
   }
@@ -234,6 +229,8 @@ export function ChatProvider({ children }: ChatProviderProps) {
     });
 
     socketService.onOnlineUsers((users) => {
+      console.log('ChatContext - online_users event received:', users.map(u => u.displayName));
+      console.log('ChatContext - online users count:', users.length);
       dispatch({ type: 'SET_ONLINE_USERS', payload: users });
     });
 
@@ -266,11 +263,9 @@ export function ChatProvider({ children }: ChatProviderProps) {
     });
 
     socketService.onFriendAdded(({ chat, friend, systemMessage }) => {
+      console.log('ChatContext - friend_added event received:', { chat, friend, systemMessage });
+
       dispatch({ type: 'ADD_CHAT', payload: parseChat(chat) });
-      // 更新用户信息缓存
-      if (friend) {
-        dispatch({ type: 'UPDATE_USER_INFO', payload: { userId: friend.id, userInfo: friend } });
-      }
       if (systemMessage) {
         dispatch({ type: 'ADD_MESSAGE', payload: systemMessage });
       }

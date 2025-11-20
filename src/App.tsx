@@ -31,7 +31,7 @@ function App() {
     const [showAddModal, setShowAddModal] = useState(false);
     const [newContactName, setNewContactName] = useState('');
 
-    // --- 用户信息缓存 (关键修复：用于存储离线但已建立关系的用户的详细信息) ---
+    // --- 用户信息缓存 ---
     const [userCache, setUserCache] = useState<Map<string, any>>(new Map());
 
     // --- 认证表单状态 ---
@@ -45,33 +45,76 @@ function App() {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages, currentChat]);
 
-    // --- [核心修复 1] 监听 Socket 事件并立即更新缓存 ---
-    // 只要收到加好友成功的消息（无论是主动发起的还是被动接收的），都立刻把对方信息存入缓存
+    // 从在线用户列表更新用户缓存
     useEffect(() => {
-        const handleFriendAdded = (data: any) => {
-            console.log("收到 friend_added 事件:", data);
-            // 兼容不同的返回结构，socket.ts 定义的是 { chat, friend, systemMessage }
-            const friendData = data.friend || data;
-
-            if (friendData && friendData.id) {
-                setUserCache(prev => {
-                    const newCache = new Map(prev);
-                    newCache.set(friendData.id, friendData);
-                    console.log(`更新缓存: ${friendData.username} (${friendData.id})`);
-                    return newCache;
+        if (onlineUsers && onlineUsers.length > 0) {
+            setUserCache(prev => {
+                const newCache = new Map(prev);
+                onlineUsers.forEach(onlineUser => {
+                    if (onlineUser.id && (onlineUser.displayName || onlineUser.username)) {
+                        newCache.set(onlineUser.id, onlineUser);
+                    }
                 });
-            }
-        };
+                return newCache;
+            });
+        }
+    }, [onlineUsers]);
 
-        // 监听socket事件
-        socketService.onFriendAdded(handleFriendAdded);
+    // 从聊天列表中提取并缓存用户信息
+    useEffect(() => {
+        if (chats && chats.length > 0) {
+            console.log('Chats updated, extracting user info:', chats);
 
-        // 清理监听器
-        return () => {
-            // 注意：这里需要 SocketService 有对应的 off 方法，或者直接忽略清理以防止引用问题
-            // socketService.off('friend_added', handleFriendAdded);
-        };
-    }, []);
+            setUserCache(prev => {
+                const newCache = new Map(prev);
+
+                chats.forEach(chat => {
+                    // 检查参与者是对象还是字符串ID
+                    if (chat.participants) {
+                        chat.participants.forEach((participant: any) => {
+                            // 如果participant是对象（包含完整用户信息）
+                            if (typeof participant === 'object' && participant !== null && participant.id) {
+                                const displayName = participant.displayName || participant.username;
+                                if (displayName) {
+                                    console.log(`Caching user from chat: ${participant.id} -> ${displayName}`);
+                                    newCache.set(participant.id, participant);
+                                }
+                            }
+                            // 如果participant只是ID字符串，尝试从在线用户获取
+                            else if (typeof participant === 'string') {
+                                const onlineUser = onlineUsers.find(u => u.id === participant);
+                                if (onlineUser) {
+                                    const displayName = onlineUser.displayName || onlineUser.username;
+                                    if (displayName) {
+                                        console.log(`Caching online user from chat: ${participant} -> ${displayName}`);
+                                        newCache.set(participant, onlineUser);
+                                    }
+                                }
+                            }
+                        });
+                    }
+
+                    // 检查participantsWithInfo（来自好友添加事件的增强数据）
+                    if ((chat as any).participantsWithInfo && Array.isArray((chat as any).participantsWithInfo)) {
+                        (chat as any).participantsWithInfo.forEach((participant: any) => {
+                            if (participant && participant.id && (participant.displayName || participant.username)) {
+                                const displayName = participant.displayName || participant.username;
+                                console.log(`Caching user from participantsWithInfo: ${participant.id} -> ${displayName}`);
+                                newCache.set(participant.id, participant);
+                            }
+                        });
+                    }
+                });
+
+                console.log('Updated user cache size:', newCache.size);
+                console.log('Cache entries:', Array.from(newCache.entries()).map(([id, user]: [string, any]) => ({
+                    id,
+                    displayName: user.displayName || user.username
+                })));
+                return newCache;
+            });
+        }
+    }, [chats, onlineUsers]);
 
     const handleLogin = async () => {
         if (!username || !password) {
@@ -91,88 +134,112 @@ function App() {
         logout();
         setAuthMode('login');
         setMobileShowChat(false);
-        setUserCache(new Map()); // 登出清空缓存
     };
 
-    // --- [核心修复 2] 获取用户显示名称逻辑优化 ---
+    // --- 获取用户显示名称（增强版）---
     const getUserDisplayName = (userId: string): string => {
-        // 1. 如果是自己
+        console.log(`Getting display name for user: ${userId}`);
+        console.log('Local user cache size:', userCache.size);
+        console.log('Online users count:', onlineUsers.length);
+        console.log('Chats count:', chats.length);
+
+        // 如果是自己
         if (user?.id === userId) {
             return user.displayName || user.username;
         }
 
-        // 2. 从在线用户中查找（数据最新）
-        const onlineUser = onlineUsers.find(u => u.id === userId);
-        if (onlineUser) {
-            return onlineUser.displayName || onlineUser.username;
-        }
-
-        // 3. 从本地缓存中查找（修复加好友后名字乱码的关键）
+        // 1. 从本地缓存中查找
         const cachedUser = userCache.get(userId);
         if (cachedUser) {
-            return cachedUser.displayName || cachedUser.username;
+            const displayName = cachedUser.displayName || cachedUser.username;
+            if (displayName && displayName !== userId) {
+                console.log(`Found display name from local cache: ${displayName} for user ${userId}`);
+                return displayName;
+            }
         }
 
-        // 4. 实在找不到，暂时显示 ID（避免空）
-        return `User ${userId.slice(0, 6)}`;
-    };
-
-    // --- [核心修复 3] 添加好友逻辑优化 ---
-    const handleAddContact = async () => {
-        const nameToAdd = newContactName.trim();
-        if (!nameToAdd) return;
-
-        // 校验 1: 禁止添加自己
-        if (user?.username === nameToAdd) {
-            alert("不能添加自己为好友");
-            return;
+        // 2. 从在线用户中查找
+        const onlineUser = onlineUsers.find(u => u.id === userId);
+        if (onlineUser) {
+            const displayName = onlineUser.displayName || onlineUser.username;
+            // 立即更新缓存
+            if (displayName) {
+                console.log(`Found display name from online users: ${displayName} for user ${userId}`);
+                setUserCache(prev => {
+                    const newCache = new Map(prev);
+                    newCache.set(userId, onlineUser);
+                    return newCache;
+                });
+                return displayName;
+            }
         }
 
-        // 校验 2: 检查是否已经是好友
-        // 我们遍历当前的聊天列表，尝试解析每个私聊对象的对方名字
-        const isAlreadyFriend = chats.some(chat => {
-            if (chat.type === 'private') {
-                const otherUserId = chat.participants.find(id => id !== user?.id);
-                if (otherUserId) {
-                    // 尝试获取这个 ID 对应的名字
-                    const nameFromCache = userCache.get(otherUserId)?.username;
-                    const nameFromOnline = onlineUsers.find(u => u.id === otherUserId)?.username;
-
-                    // 如果找到了名字，并且名字和输入的一样，那就是重复了
-                    if ((nameFromCache === nameToAdd) || (nameFromOnline === nameToAdd)) {
-                        return true;
+        // 3. 从聊天列表中查找（深度查找）
+        for (const chat of chats) {
+            // 首先检查 participantsWithInfo（来自好友添加事件）
+            if ((chat as any).participantsWithInfo) {
+                const participantsWithInfo = (chat as any).participantsWithInfo;
+                for (const participant of participantsWithInfo) {
+                    if (participant && participant.id === userId) {
+                        const displayName = participant.displayName || participant.username;
+                        if (displayName) {
+                            console.log(`Found display name from chat participantsWithInfo: ${displayName} for user ${userId}`);
+                            // 更新缓存
+                            setUserCache(prev => {
+                                const newCache = new Map(prev);
+                                newCache.set(userId, participant);
+                                return newCache;
+                            });
+                            return displayName;
+                        }
                     }
                 }
             }
-            return false;
-        });
 
-        if (isAlreadyFriend) {
-            alert(`用户 ${nameToAdd} 已经是您的好友了`);
-            return;
-        }
-
-        try {
-            // 发送请求
-            // 使用双重断言绕过 TS 类型检查，确保获取返回值
-            const result = (await socketService.addFriend(nameToAdd)) as unknown as any;
-
-            // 手动更新缓存（双重保险：防止 Socket 事件延迟）
-            const friendData = result?.friend || result;
-            if (friendData && friendData.id) {
-                setUserCache(prev => {
-                    const newCache = new Map(prev);
-                    newCache.set(friendData.id, friendData);
-                    return newCache;
-                });
+            // 然后检查标准的 participants 数组
+            if (chat.participants) {
+                for (const p of chat.participants) {
+                    const participant = p as any;
+                    if (typeof participant === 'object' && participant !== null) {
+                        if (participant.id === userId) {
+                            const displayName = participant.displayName || participant.username;
+                            if (displayName) {
+                                console.log(`Found display name from chat participants: ${displayName} for user ${userId}`);
+                                // 更新缓存
+                                setUserCache(prev => {
+                                    const newCache = new Map(prev);
+                                    newCache.set(userId, participant);
+                                    return newCache;
+                                });
+                                return displayName;
+                            }
+                        }
+                    } else if (p === userId) {
+                        // ID 字符串匹配，但无法获取名称
+                        console.log(`Found ID string match in chat participants for user ${userId}, but no display info`);
+                        break;
+                    }
+                }
             }
-
-            setNewContactName('');
-            setShowAddModal(false);
-        } catch (e: any) {
-            console.error("添加好友失败:", e);
-            alert(e.message || "添加好友失败，请检查用户名是否正确");
         }
+
+        // 4. 最后回退到用户ID显示
+        console.warn(`Could not find display name for user: ${userId}, falling back to ID display`);
+        console.log('Local cache keys:', Array.from(userCache.keys()));
+        console.log('Online user IDs:', onlineUsers.map(u => u.id));
+
+        return `User ${userId.slice(0, 6)}`;
+    };
+
+    // --- 添加好友逻辑 ---
+    const handleAddContact = async () => {
+        if (!newContactName.trim()) return;
+
+        console.log('Adding friend:', newContactName);
+        await addFriend(newContactName);
+
+        setNewContactName('');
+        setShowAddModal(false);
     };
 
     const handleSendMessage = () => {
@@ -188,15 +255,28 @@ function App() {
 
         if (currentChat.type === 'private' && currentChat.participants.length === 2) {
             // 私聊：获取对方信息
-            const otherUserId = currentChat.participants.find(id => id !== user?.id);
-            // 如果 otherUserId 存在，使用 getUserDisplayName 获取名字，这样能利用上 userCache
-            const displayName = otherUserId ? getUserDisplayName(otherUserId) : 'Unknown User';
+            const otherUserData = currentChat.participants.find((p: any) => {
+                const id = typeof p === 'object' && p !== null ? p.id : p;
+                return id !== user?.id;
+            });
+
+            let actualOtherUserId: string;
+            if (typeof otherUserData === 'object' && otherUserData !== null) {
+                actualOtherUserId = (otherUserData as any).id;
+            } else {
+                actualOtherUserId = otherUserData as string;
+            }
+
+            const displayName = actualOtherUserId ? getUserDisplayName(actualOtherUserId) : 'Unknown User';
+
+            // 检查对方是否在线
+            const isOnline = onlineUsers.some(u => u.id === actualOtherUserId);
 
             return {
                 name: displayName,
                 avatar: displayName.slice(0, 2).toUpperCase(),
                 color: 'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)',
-                online: otherUserId ? onlineUsers.some(u => u.id === otherUserId) : false
+                online: isOnline
             };
         } else {
             // 群聊
@@ -382,15 +462,31 @@ function App() {
                             {chats.map(chat => {
                                 let chatInfo: string;
                                 let avatarText: string;
+                                let isOnline = false;
+                                let otherUserId: string | null = null;
 
                                 if (chat.type === 'private' && chat.participants.length === 2) {
-                                    const otherUserId = chat.participants.find(id => id !== user?.id);
+                                    const otherUserData = chat.participants.find((p: any) => {
+                                        const id = typeof p === 'object' && p !== null ? p.id : p;
+                                        return id !== user?.id;
+                                    });
+
+                                    if (typeof otherUserData === 'object' && otherUserData !== null) {
+                                        otherUserId = (otherUserData as any).id;
+                                    } else {
+                                        otherUserId = otherUserData as string;
+                                    }
+
                                     const displayName = otherUserId ? getUserDisplayName(otherUserId) : 'Unknown User';
                                     chatInfo = displayName;
                                     avatarText = displayName.slice(0, 2).toUpperCase();
+
+                                    // 检查对方是否在线
+                                    isOnline = otherUserId ? onlineUsers.some(u => u.id === otherUserId) : false;
                                 } else {
                                     chatInfo = chat.name || 'Group Chat';
                                     avatarText = chatInfo.slice(0, 2).toUpperCase();
+                                    isOnline = true; // 群聊始终显示为在线
                                 }
 
                                 return (
@@ -399,11 +495,40 @@ function App() {
                                         className={`contact-item ${currentChat?.id === chat.id ? 'active' : ''}`}
                                         onClick={() => { setCurrentChat(chat); setMobileShowChat(true); }}
                                     >
-                                        <div className="avatar" style={{ background: 'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)' }}>
+                                        <div className="avatar" style={{ background: 'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)', position: 'relative' }}>
                                             {avatarText}
+                                            {/* 在线状态指示器 */}
+                                            {chat.type === 'private' && (
+                                                <div
+                                                    style={{
+                                                        position: 'absolute',
+                                                        bottom: 0,
+                                                        right: 0,
+                                                        width: 14,
+                                                        height: 14,
+                                                        borderRadius: '50%',
+                                                        backgroundColor: isOnline ? '#48bb78' : '#e53e3e',
+                                                        border: '2px solid white',
+                                                        boxSizing: 'border-box'
+                                                    }}
+                                                />
+                                            )}
                                         </div>
                                         <div style={{ flex: 1, minWidth: 0 }}>
-                                            <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-main)' }}>{chatInfo}</div>
+                                            <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                {chatInfo}
+                                                {chat.type === 'private' && (
+                                                    <span
+                                                        style={{
+                                                            fontSize: 10,
+                                                            color: isOnline ? '#48bb78' : '#e53e3e',
+                                                            fontWeight: 500
+                                                        }}
+                                                    >
+                                                        {isOnline ? '在线' : '离线'}
+                                                    </span>
+                                                )}
+                                            </div>
                                             <div style={{ fontSize: 13, color: 'var(--text-light)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                                 {chat.lastMessage?.content || '开始聊天吧'}
                                             </div>
@@ -490,4 +615,4 @@ function App() {
     );
 }
 
-export default App;
+export default App
