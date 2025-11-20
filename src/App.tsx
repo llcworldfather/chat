@@ -1,182 +1,161 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, ChevronLeft, LogOut, Search } from 'lucide-react';
+import { Send, ChevronLeft, LogOut, Search, UserPlus, X } from 'lucide-react';
+import { useChat } from './context/ChatContext';
+import { socketService } from './services/socket';
 import './index.css';
 
-// --- 类型定义 ---
-interface User {
-    username: string;
-    email: string;
-    avatarColor: string;
-}
-
-interface Message {
-    id: number;
-    text: string;
-    sender: 'me' | 'other';
-    timestamp: number;
-}
-
-interface Contact {
-    id: number;
-    name: string;
-    role: string;
-    avatar: string;
-    color: string;
-    online: boolean;
-}
-
-// --- 模拟数据 ---
-const INITIAL_CONTACTS: Contact[] = [
-    { id: 1, name: '张三', role: '产品经理', avatar: '张', color: 'linear-gradient(135deg, #f6d365 0%, #fda085 100%)', online: true },
-    { id: 2, name: '李四', role: '研发工程师', avatar: '李', color: 'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)', online: true },
-    { id: 3, name: '王五', role: 'UI设计师', avatar: '王', color: 'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)', online: false },
-];
-
-const INITIAL_MESSAGES: Record<number, Message[]> = {
-    1: [
-        { id: 1, text: '新版本的 UI 你看了吗？', sender: 'other', timestamp: Date.now() - 10000 },
-        { id: 2, text: '看了，玻璃拟态的效果很棒！', sender: 'me', timestamp: Date.now() - 5000 },
-    ],
-    2: [{ id: 3, text: '接口文档更新了', sender: 'other', timestamp: Date.now() }],
-    3: [],
-};
-
 function App() {
-    // --- 全局状态 ---
-    const [user, setUser] = useState<User | null>(null);
+    // --- Chat Context ---
+    const {
+        user,
+        login,
+        register,
+        logout,
+        chats,
+        currentChat,
+        messages,
+        setCurrentChat,
+        sendMessage,
+        addFriend,
+        onlineUsers,
+        loading,
+        error
+    } = useChat();
+
+    // --- 认证状态 ---
     const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
 
-    // --- 聊天状态 ---
-    const [activeContactId, setActiveContactId] = useState<number>(1);
-    const [messages, setMessages] = useState<Record<number, Message[]>>(INITIAL_MESSAGES);
+    // --- UI 状态 ---
     const [inputText, setInputText] = useState('');
     const [mobileShowChat, setMobileShowChat] = useState(false);
+    const [showAddModal, setShowAddModal] = useState(false);
+    const [newContactName, setNewContactName] = useState('');
+
+    // --- 用户信息缓存 ---
+    const [userCache, setUserCache] = useState<Map<string, any>>(new Map());
 
     // --- 认证表单状态 ---
+    const [username, setUsername] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const [username, setUsername] = useState('');
-    const [errorMsg, setErrorMsg] = useState('');
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
-    // 初始化检查登录状态
-    useEffect(() => {
-        const storedUser = localStorage.getItem('chat_user');
-        if (storedUser) {
-            setUser(JSON.parse(storedUser));
-        }
-    }, []);
-
-    // 自动滚动到底部
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages, activeContactId, mobileShowChat]);
+    }, [messages, currentChat]);
 
-    // --- 认证逻辑 ---
-    const handleLogin = () => {
-        if (!email || !password) {
-            setErrorMsg('请填写所有字段');
+    // 监听friend_added事件来更新用户缓存
+    useEffect(() => {
+        const handleFriendAdded = ({ friend }: any) => {
+            if (friend) {
+                setUserCache(prev => {
+                    const newCache = new Map(prev);
+                    newCache.set(friend.id, friend);
+                    return newCache;
+                });
+            }
+        };
+
+        // 监听socket事件
+        socketService.onFriendAdded(handleFriendAdded);
+
+        // 清理监听器
+        return () => {
+            socketService.off('friend_added', handleFriendAdded);
+        };
+    }, []);
+
+    const handleLogin = async () => {
+        if (!username || !password) {
             return;
         }
-        // 模拟登录：从 LocalStorage 获取注册用户，如果没有则允许测试账号
-        const storedDb = JSON.parse(localStorage.getItem('chat_db') || '{}');
-
-        if (storedDb[email] && storedDb[email].password === password) {
-            const userData = {
-                username: storedDb[email].username,
-                email,
-                avatarColor: 'linear-gradient(120deg, #f093fb 0%, #f5576c 100%)'
-            };
-            loginSuccess(userData);
-        } else if (email === 'test@test.com' && password === '123456') {
-            // 测试后门
-            loginSuccess({ username: '测试用户', email, avatarColor: 'linear-gradient(120deg, #f093fb 0%, #f5576c 100%)' });
-        } else {
-            setErrorMsg('邮箱或密码错误 (可用 test@test.com / 123456)');
-        }
+        await login(username, password);
     };
 
-    const handleRegister = () => {
-        if (!email || !password || !username) {
-            setErrorMsg('请填写所有字段');
+    const handleRegister = async () => {
+        if (!username || !email || !password) {
             return;
         }
-        if (password.length < 6) {
-            setErrorMsg('密码至少需要6位');
-            return;
-        }
-
-        // 模拟注册：存入 LocalStorage
-        const storedDb = JSON.parse(localStorage.getItem('chat_db') || '{}');
-        if (storedDb[email]) {
-            setErrorMsg('该邮箱已被注册');
-            return;
-        }
-
-        storedDb[email] = { username, password };
-        localStorage.setItem('chat_db', JSON.stringify(storedDb));
-
-        // 自动登录
-        loginSuccess({
-            username,
-            email,
-            avatarColor: 'linear-gradient(120deg, #84fab0 0%, #8fd3f4 100%)'
-        });
-    };
-
-    const loginSuccess = (userData: User) => {
-        setUser(userData);
-        localStorage.setItem('chat_user', JSON.stringify(userData));
-        setErrorMsg('');
-        setEmail('');
-        setPassword('');
+        await register({ username, displayName: username, password, email });
     };
 
     const handleLogout = () => {
-        setUser(null);
-        localStorage.removeItem('chat_user');
+        logout();
         setAuthMode('login');
         setMobileShowChat(false);
     };
 
-    // --- 聊天逻辑 ---
-    const handleSendMessage = () => {
-        if (!inputText.trim()) return;
+    // --- 获取用户显示名称 ---
+    const getUserDisplayName = (userId: string): string => {
+        // 如果是自己
+        if (user?.id === userId) {
+            return user.displayName || user.username;
+        }
 
-        const newMsg: Message = {
-            id: Date.now(),
-            text: inputText,
-            sender: 'me',
-            timestamp: Date.now(),
-        };
+        // 从在线用户中查找（优先级最高，因为数据最准确）
+        const onlineUser = onlineUsers.find(u => u.id === userId);
+        if (onlineUser && onlineUser.displayName) {
+            return onlineUser.displayName;
+        }
 
-        setMessages(prev => ({
-            ...prev,
-            [activeContactId]: [...(prev[activeContactId] || []), newMsg]
-        }));
-        setInputText('');
+        // 从在线用户中查找用户名（如果没有显示名）
+        const onlineUserWithUsername = onlineUsers.find(u => u.id === userId);
+        if (onlineUserWithUsername && onlineUserWithUsername.username) {
+            return onlineUserWithUsername.username;
+        }
 
-        // 模拟自动回复
-        setTimeout(() => {
-            const contact = INITIAL_CONTACTS.find(c => c.id === activeContactId);
-            const replyText = `我是${contact?.name}，我已收到你的消息："${newMsg.text}"`;
+        // 从缓存中查找
+        const cachedUser = userCache.get(userId);
+        if (cachedUser) {
+            return cachedUser.displayName || cachedUser.username;
+        }
 
-            const replyMsg: Message = {
-                id: Date.now() + 1,
-                text: replyText,
-                sender: 'other',
-                timestamp: Date.now(),
-            };
-
-            setMessages(prev => ({
-                ...prev,
-                [activeContactId]: [...(prev[activeContactId] || []), replyMsg]
-            }));
-        }, 1000 + Math.random() * 1000);
+        // 默认显示用户名的截断版本
+        return `User ${userId.slice(0, 6)}`;
     };
 
-    // --- 渲染：未登录状态 (Login/Register) ---
+    // --- 添加好友逻辑 ---
+    const handleAddContact = () => {
+        if (!newContactName.trim()) return;
+
+        addFriend(newContactName);
+        setNewContactName('');
+        setShowAddModal(false);
+    };
+
+    const handleSendMessage = () => {
+        if (!inputText.trim() || !currentChat) return;
+
+        sendMessage(currentChat.id, inputText);
+        setInputText('');
+    };
+
+    // 获取当前聊天的参与者信息
+    const getCurrentChatInfo = () => {
+        if (!currentChat) return null;
+
+        if (currentChat.type === 'private' && currentChat.participants.length === 2) {
+            // 私聊：获取对方信息
+            const otherUserId = currentChat.participants.find(id => id !== user?.id);
+            const displayName = otherUserId ? getUserDisplayName(otherUserId) : 'Unknown User';
+            return {
+                name: displayName,
+                avatar: displayName.slice(0, 2).toUpperCase(),
+                color: 'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)',
+                online: true // 简化处理，实际应该从 onlineUsers 获取
+            };
+        } else {
+            // 群聊
+            return {
+                name: currentChat.name || 'Group Chat',
+                avatar: currentChat.avatar || 'G',
+                color: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+                online: true
+            };
+        }
+    };
+
     if (!user) {
         return (
             <div className="app-wrapper">
@@ -189,68 +168,98 @@ function App() {
 
                     <div className="auth-layout">
                         <div className="auth-box">
-                            <h2 className="auth-title">
-                                {authMode === 'login' ? 'Welcome Back' : 'Create Account'}
+                            <h2 className={`auth-title ${authMode === 'register' ? 'register-title' : ''}`}>
+                                {authMode === 'login' ? 'Welcome Back' : 'Join Chat Today'}
                             </h2>
                             <p className="auth-subtitle">
-                                {authMode === 'login' ? '登录账户体验清爽聊天' : '开启您的云端旅程'}
+                                {authMode === 'login' ? '登录账户体验清爽聊天' : '创建账户，开启精彩对话'}
                             </p>
 
-                            {errorMsg && <div style={{color: '#ff6b6b', fontSize: 14, marginBottom: 10, textAlign: 'center'}}>{errorMsg}</div>}
+                            {error && <div style={{color: '#ff6b6b', fontSize: 14, marginBottom: 10, textAlign: 'center'}}>{error}</div>}
 
                             {authMode === 'register' && (
-                                <div className="input-group">
-                                    <label>用户名</label>
-                                    <input
-                                        className="input-field"
-                                        type="text"
-                                        placeholder="怎么称呼您？"
-                                        value={username}
-                                        onChange={e => setUsername(e.target.value)}
-                                    />
-                                </div>
+                                <>
+                                    <div className="input-group">
+                                        <label>用户名</label>
+                                        <input
+                                            className="input-field"
+                                            type="text"
+                                            placeholder="选择一个用户名"
+                                            value={username}
+                                            onChange={e => setUsername(e.target.value)}
+                                            disabled={loading}
+                                        />
+                                    </div>
+
+                                    <div className="input-group">
+                                        <label>邮箱</label>
+                                        <input
+                                            className="input-field"
+                                            type="email"
+                                            placeholder="your@email.com"
+                                            value={email}
+                                            onChange={e => setEmail(e.target.value)}
+                                            disabled={loading}
+                                        />
+                                    </div>
+
+                                    <div className="input-group">
+                                        <label>密码</label>
+                                        <input
+                                            className="input-field"
+                                            type="password"
+                                            placeholder="至少6位字符"
+                                            value={password}
+                                            onChange={e => setPassword(e.target.value)}
+                                            disabled={loading}
+                                            onKeyDown={e => e.key === 'Enter' && handleRegister()}
+                                        />
+                                    </div>
+                                </>
                             )}
 
-                            <div className="input-group">
-                                <label>邮箱地址</label>
-                                <input
-                                    className="input-field"
-                                    type="email"
-                                    placeholder="name@example.com"
-                                    value={email}
-                                    onChange={e => setEmail(e.target.value)}
-                                />
-                            </div>
+                            {authMode === 'login' && (
+                                <>
+                                    <div className="input-group">
+                                        <label>用户名</label>
+                                        <input
+                                            className="input-field"
+                                            type="text"
+                                            placeholder="怎么称呼您？"
+                                            value={username}
+                                            onChange={e => setUsername(e.target.value)}
+                                            disabled={loading}
+                                        />
+                                    </div>
 
-                            <div className="input-group">
-                                <label>密码</label>
-                                <input
-                                    className="input-field"
-                                    type="password"
-                                    placeholder={authMode === 'register' ? "至少6位字符" : "••••••••"}
-                                    value={password}
-                                    onChange={e => setPassword(e.target.value)}
-                                />
-                            </div>
+                                    <div className="input-group">
+                                        <label>密码</label>
+                                        <input
+                                            className="input-field"
+                                            type="password"
+                                            placeholder="••••••••"
+                                            value={password}
+                                            onChange={e => setPassword(e.target.value)}
+                                            disabled={loading}
+                                            onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                                        />
+                                    </div>
+                                </>
+                            )}
 
                             <button
                                 className="primary-btn"
                                 onClick={authMode === 'login' ? handleLogin : handleRegister}
+                                disabled={loading}
                             >
-                                {authMode === 'login' ? '立即登录' : '注册并登录'}
+                                {loading ? '处理中...' : (authMode === 'login' ? '立即登录' : '注册并登录')}
                             </button>
 
                             <p className="switch-text">
                                 {authMode === 'login' ? '还没有账户？' : '已有账户？'}
-                                <span
-                                    className="switch-link"
-                                    onClick={() => {
-                                        setAuthMode(authMode === 'login' ? 'register' : 'login');
-                                        setErrorMsg('');
-                                    }}
-                                >
-                  {authMode === 'login' ? '立即注册' : '立即登录'}
-                </span>
+                                <span className="switch-link" onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); }}>
+                                  {authMode === 'login' ? '立即注册' : '立即登录'}
+                                </span>
                             </p>
                         </div>
                     </div>
@@ -259,14 +268,35 @@ function App() {
         );
     }
 
-    // --- 渲染：已登录状态 (Chat) ---
-    const activeContact = INITIAL_CONTACTS.find(c => c.id === activeContactId);
-    const currentMessages = messages[activeContactId] || [];
+    const currentChatInfo = getCurrentChatInfo();
 
     return (
         <div className="app-wrapper">
             <div className="glass-container">
-                {/* 窗口控制点 */}
+                {/* 添加好友弹窗 */}
+                {showAddModal && (
+                    <div className="modal-overlay">
+                        <div className="modal-content">
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                                <h3 style={{ fontSize: '20px', fontWeight: 800, color: '#2d3748' }}>添加新朋友</h3>
+                                <button className="icon-btn" onClick={() => setShowAddModal(false)}><X size={20} /></button>
+                            </div>
+                            <div className="input-group">
+                                <label>好友用户名</label>
+                                <input
+                                    className="input-field"
+                                    autoFocus
+                                    value={newContactName}
+                                    onChange={(e) => setNewContactName(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && handleAddContact()}
+                                    placeholder="输入用户名..."
+                                />
+                            </div>
+                            <button className="primary-btn" onClick={handleAddContact}>确认添加</button>
+                        </div>
+                    </div>
+                )}
+
                 <div className="window-controls">
                     <div className="window-dot close"></div>
                     <div className="window-dot minimize"></div>
@@ -274,103 +304,132 @@ function App() {
                 </div>
 
                 <div className="chat-layout">
-                    {/* 左侧联系人列表 */}
                     <div className="sidebar">
                         <div className="sidebar-header">
                             <h3>Messages</h3>
-                            <button onClick={handleLogout} className="logout-btn" title="退出登录">
-                                <LogOut size={18} />
-                            </button>
+                            {/* 顶部功能区：添加好友 + 退出 */}
+                            <div style={{ display: 'flex', gap: '4px' }}>
+                                <button onClick={() => setShowAddModal(true)} className="icon-btn" title="添加好友">
+                                    <UserPlus size={20} />
+                                </button>
+                                <button onClick={handleLogout} className="icon-btn danger" title="退出登录">
+                                    <LogOut size={20} />
+                                </button>
+                            </div>
                         </div>
 
-                        <div style={{ padding: '0 15px 10px' }}>
+                        <div style={{ padding: '0 25px 15px' }}>
                             <div style={{ position: 'relative' }}>
                                 <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} />
-                                <input
-                                    type="text"
-                                    placeholder="搜索联系人..."
-                                    style={{ width: '100%', padding: '10px 10px 10px 36px', borderRadius: 10, border: 'none', background: 'rgba(255,255,255,0.5)', fontSize: 14, outline: 'none' }}
-                                />
+                                <input type="text" placeholder="搜索联系人..." style={{ width: '100%', padding: '10px 10px 10px 36px', borderRadius: 10, border: 'none', background: 'rgba(255,255,255,0.5)', fontSize: 14, outline: 'none' }} />
                             </div>
                         </div>
 
                         <div className="contact-list">
-                            {INITIAL_CONTACTS.map(contact => (
-                                <div
-                                    key={contact.id}
-                                    className={`contact-item ${activeContactId === contact.id ? 'active' : ''}`}
-                                    onClick={() => {
-                                        setActiveContactId(contact.id);
-                                        setMobileShowChat(true);
-                                    }}
-                                >
-                                    <div className={`avatar ${contact.online ? 'online' : ''}`} style={{ background: contact.color }}>
-                                        {contact.avatar}
-                                    </div>
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-main)' }}>{contact.name}</div>
-                                        <div style={{ fontSize: 13, color: 'var(--text-light)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                            {messages[contact.id]?.slice(-1)[0]?.text || contact.role}
+                            {chats.map(chat => {
+                                let chatInfo: string;
+                                let avatarText: string;
+
+                                if (chat.type === 'private' && chat.participants.length === 2) {
+                                    const otherUserId = chat.participants.find(id => id !== user?.id);
+                                    const displayName = otherUserId ? getUserDisplayName(otherUserId) : 'Unknown User';
+                                    chatInfo = displayName;
+                                    avatarText = displayName.slice(0, 2).toUpperCase();
+                                } else {
+                                    chatInfo = chat.name || 'Group Chat';
+                                    avatarText = chatInfo.slice(0, 2).toUpperCase();
+                                }
+
+                                return (
+                                    <div
+                                        key={chat.id}
+                                        className={`contact-item ${currentChat?.id === chat.id ? 'active' : ''}`}
+                                        onClick={() => { setCurrentChat(chat); setMobileShowChat(true); }}
+                                    >
+                                        <div className="avatar" style={{ background: 'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)' }}>
+                                            {avatarText}
+                                        </div>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-main)' }}>{chatInfo}</div>
+                                            <div style={{ fontSize: 13, color: 'var(--text-light)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                {chat.lastMessage?.content || '开始聊天吧'}
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     </div>
 
-                    {/* 右侧聊天窗口 */}
                     <div className={`chat-area ${mobileShowChat ? 'active' : ''}`}>
-                        <div className="chat-header">
-                            <button className="mobile-back" onClick={() => setMobileShowChat(false)}>
-                                <ChevronLeft size={24} />
-                            </button>
-                            <div className="avatar" style={{ width: 38, height: 38, fontSize: 14, background: activeContact?.color }}>
-                                {activeContact?.avatar}
-                            </div>
-                            <div>
-                                <h3 style={{ fontSize: 16, fontWeight: 700, color: '#2d3748' }}>{activeContact?.name}</h3>
-                                <div style={{ fontSize: 12, color: activeContact?.online ? '#2ecc71' : '#95a5a6', display: 'flex', alignItems: 'center', gap: 4 }}>
-                                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor' }}></span>
-                                    {activeContact?.online ? '在线' : '离线'}
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="messages-box">
-                            {currentMessages.length === 0 && (
-                                <div style={{ textAlign: 'center', color: '#a0aec0', marginTop: 50, fontSize: 14 }}>
-                                    暂无消息，打个招呼吧~
-                                </div>
-                            )}
-                            {currentMessages.map(msg => (
-                                <div key={msg.id} className={`message ${msg.sender === 'me' ? 'me' : ''}`}>
-                                    <div className="avatar" style={{
-                                        width: 32, height: 32, fontSize: 12,
-                                        background: msg.sender === 'me' ? user.avatarColor : activeContact?.color
-                                    }}>
-                                        {msg.sender === 'me' ? user.username[0] : activeContact?.avatar}
+                        {currentChat ? (
+                            <>
+                                <div className="chat-header">
+                                    <button className="mobile-back" onClick={() => setMobileShowChat(false)}>
+                                        <ChevronLeft size={24} />
+                                    </button>
+                                    <div className="avatar" style={{ width: 52, height: 52, fontSize: 18, background: currentChatInfo?.color }}>
+                                        {currentChatInfo?.avatar}
                                     </div>
-                                    <div className="message-content">
-                                        {msg.text}
+                                    <div>
+                                        <h3 style={{ fontSize: 16, fontWeight: 700, color: '#2d3748' }}>{currentChatInfo?.name}</h3>
+                                        <div style={{ fontSize: 12, color: currentChatInfo?.online ? '#2ecc71' : '#95a5a6', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor' }}></span>
+                                            {currentChatInfo?.online ? '在线' : '离线'}
+                                        </div>
                                     </div>
                                 </div>
-                            ))}
-                            <div ref={messagesEndRef} />
-                        </div>
 
-                        <div className="input-area">
-                            <input
-                                type="text"
-                                className="chat-input"
-                                placeholder="说点什么..."
-                                value={inputText}
-                                onChange={e => setInputText(e.target.value)}
-                                onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
-                            />
-                            <button className="send-btn" onClick={handleSendMessage}>
-                                <Send size={20} />
-                            </button>
-                        </div>
+                                <div className="messages-box">
+                                    {messages.length === 0 && (
+                                        <div style={{ textAlign: 'center', color: '#a0aec0', marginTop: 50, fontSize: 14 }}>
+                                            打个招呼吧，这是你们聊天的开始~
+                                        </div>
+                                    )}
+                                    {messages.map(msg => (
+                                        <div key={msg.id} className={`message ${msg.senderId === user?.id ? 'me' : ''}`}>
+                                            <div className="avatar" style={{
+                                                width: 44, height: 44, fontSize: 15,
+                                                background: msg.senderId === user?.id
+                                                    ? 'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)'
+                                                    : currentChatInfo?.color
+                                            }}>
+                                                {msg.senderId === user?.id ? user?.displayName?.slice(0, 2) : currentChatInfo?.avatar}
+                                            </div>
+                                            <div className="message-content">
+                                                {msg.content}
+                                            </div>
+                                        </div>
+                                    ))}
+                                    <div ref={messagesEndRef} />
+                                </div>
+
+                                <div className="input-area">
+                                    <input
+                                        type="text"
+                                        className="chat-input"
+                                        placeholder="说点什么..."
+                                        value={inputText}
+                                        onChange={e => setInputText(e.target.value)}
+                                        onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
+                                    />
+                                    <button className="send-btn" onClick={handleSendMessage}>
+                                        <Send size={20} />
+                                    </button>
+                                </div>
+                            </>
+                        ) : (
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                height: '100%',
+                                color: '#a0aec0',
+                                fontSize: 16
+                            }}>
+                                选择一个聊天开始对话
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
