@@ -98,10 +98,11 @@ class ApiService {
     }
 
     async getOnlineUsers(): Promise<User[]> {
-        return this.request<User[]>({
+        const response = await this.request<{success: boolean; data: User[]}>({
             method: 'GET',
             url: '/users/online/list',
         });
+        return response.data || [];
     }
 
     async healthCheck(): Promise<any> {

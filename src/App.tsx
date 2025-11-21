@@ -52,6 +52,7 @@ function App() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, currentChat]);
 
@@ -169,6 +170,22 @@ function App() {
         setProfileForm(prev => ({ ...prev, avatar: url }));
     };
 
+    const handleAvatarClick = () => {
+        fileInputRef.current?.click();
+    };
+
+    const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (file && file.type.startsWith('image/')) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const result = e.target?.result as string;
+                setProfileForm(prev => ({ ...prev, avatar: result }));
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
     const handleSendMessage = () => {
         if (!inputText.trim() || !currentChat) return;
         sendMessage(currentChat.id, inputText);
@@ -181,9 +198,18 @@ function App() {
             const otherUserId = currentChat.participants.find(p => p !== user?.id);
             const displayName = otherUserId ? getUserDisplayName(otherUserId) : 'Unknown';
             const isOnline = onlineUsers.some(u => u.id === otherUserId);
+
+            // 获取对方用户的头像信息 - 优先使用 onlineUsers 中的最新数据
+            let otherUserAvatar: string | undefined;
+            if (otherUserId) {
+                const otherUser = onlineUsers.find(u => u.id === otherUserId) || userCache.get(otherUserId);
+                otherUserAvatar = otherUser?.avatar;
+            }
+
             return {
                 name: displayName,
-                avatar: displayName.slice(0, 2).toUpperCase(),
+                avatar: otherUserAvatar && !otherUserAvatar.includes('ui-avatars.com') ? null : displayName.slice(0, 2).toUpperCase(),
+                avatarUrl: otherUserAvatar && !otherUserAvatar.includes('ui-avatars.com') ? otherUserAvatar : null,
                 color: 'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)',
                 online: isOnline
             };
@@ -191,6 +217,7 @@ function App() {
         return {
             name: currentChat.name || 'Group',
             avatar: (currentChat.name || 'G').slice(0,2).toUpperCase(),
+            avatarUrl: null,
             color: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
             online: true
         };
@@ -279,7 +306,7 @@ function App() {
 
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                                    <div style={{ width: 80, height: 80, borderRadius: 24, overflow: 'hidden', position: 'relative', cursor: 'pointer', boxShadow: '0 8px 20px rgba(0,0,0,0.1)' }} onClick={generateRandomAvatar} className="group">
+                                    <div style={{ width: 80, height: 80, borderRadius: 24, overflow: 'hidden', position: 'relative', cursor: 'pointer', boxShadow: '0 8px 20px rgba(0,0,0,0.1)' }} onClick={handleAvatarClick} className="group">
                                         {profileForm.avatar && !profileForm.avatar.includes('ui-avatars.com') ? (
                                             <img src={profileForm.avatar} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                         ) : (
@@ -294,7 +321,7 @@ function App() {
                                     <div>
                                         <p style={{ fontSize: 14, fontWeight: 600, color: '#4a5568', marginBottom: 8 }}>个人头像</p>
                                         <button onClick={generateRandomAvatar} style={{ fontSize: 12, color: '#4facfe', background: '#ebf8ff', border: 'none', padding: '8px 12px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>
-                                            随机生成
+                                            随机头像
                                         </button>
                                     </div>
                                 </div>
@@ -354,14 +381,32 @@ function App() {
                                     const pid = chat.participants.find(id => id !== user.id);
                                     const name = getUserDisplayName(pid as string);
                                     const online = onlineUsers.some(u => u.id === pid);
-                                    info = { name, avatar: name.slice(0,2).toUpperCase(), color: 'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)', online };
+
+                                    // 获取对方用户的头像信息 - 优先使用 onlineUsers 中的最新数据
+                                    let otherUserAvatar: string | undefined;
+                                    if (pid) {
+                                        const otherUser = onlineUsers.find(u => u.id === pid) || userCache.get(pid);
+                                        otherUserAvatar = otherUser?.avatar;
+                                    }
+
+                                    info = {
+                                        name,
+                                        avatar: otherUserAvatar && !otherUserAvatar.includes('ui-avatars.com') ? null : name.slice(0,2).toUpperCase(),
+                                        avatarUrl: otherUserAvatar && !otherUserAvatar.includes('ui-avatars.com') ? otherUserAvatar : null,
+                                        color: 'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)',
+                                        online
+                                    };
                                 } else {
-                                    info = { name: chat.name, avatar: chat.name?.slice(0,2).toUpperCase(), color: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)', online: true };
+                                    info = { name: chat.name, avatar: chat.name?.slice(0,2).toUpperCase(), avatarUrl: null, color: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)', online: true };
                                 }
                                 return (
                                     <div key={chat.id} className={`contact-item ${currentChat?.id===chat.id?'active':''}`} onClick={()=>{setCurrentChat(chat);setMobileShowChat(true)}}>
                                         <div className="avatar" style={{ background: info.color, position: 'relative' }}>
-                                            {info.avatar}
+                                            {info.avatarUrl ? (
+                                                <img src={info.avatarUrl} alt={info.name} style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:'inherit'}}/>
+                                            ) : (
+                                                info.avatar
+                                            )}
                                             {info.online && <div style={{position:'absolute',bottom:0,right:0,width:12,height:12,background:'#48bb78',borderRadius:'50%',border:'2px solid white'}}/>}
                                         </div>
                                         <div style={{flex:1, minWidth:0}}>
@@ -376,7 +421,7 @@ function App() {
                         {/* Bottom User Profile */}
                         <div style={{ padding: '16px 20px', borderTop: '1px solid rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.3)', marginTop: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => setShowProfileModal(true)}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                <div className="avatar" style={{ width: 40, height: 40, fontSize: 14, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
+                                <div className="avatar" style={{ width: 48, height: 48, fontSize: 16, background: 'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)' }}>
                                     {user.avatar && !user.avatar.includes('ui-avatars.com') ? <img src={user.avatar} alt="me" style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:14}}/> : user.displayName?.slice(0,2).toUpperCase()}
                                 </div>
                                 <div>
@@ -396,7 +441,13 @@ function App() {
                             <>
                                 <div className="chat-header">
                                     <button className="mobile-back" onClick={()=>setMobileShowChat(false)}><ChevronLeft/></button>
-                                    <div className="avatar" style={{width:52,height:52,fontSize:18,background:currentChatInfo?.color}}>{currentChatInfo?.avatar}</div>
+                                    <div className="avatar" style={{width:52,height:52,fontSize:18,background:currentChatInfo?.color}}>
+                                        {currentChatInfo?.avatarUrl ? (
+                                            <img src={currentChatInfo.avatarUrl} alt={currentChatInfo.name} style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:'inherit'}}/>
+                                        ) : (
+                                            currentChatInfo?.avatar
+                                        )}
+                                    </div>
                                     <div>
                                         <h3 style={{fontSize:16,fontWeight:700,color:'#2d3748'}}>{currentChatInfo?.name}</h3>
                                         <div style={{fontSize:12,color:currentChatInfo?.online?'#48bb78':'#a0aec0'}}>{currentChatInfo?.online?'在线':'离线'}</div>
@@ -406,7 +457,15 @@ function App() {
                                     {messages.map(msg => (
                                         <div key={msg.id} className={`message ${msg.senderId===user.id?'me':''}`}>
                                             <div className="avatar" style={{width:44,height:44,fontSize:15,background:msg.senderId===user.id?'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)':currentChatInfo?.color}}>
-                                                {msg.senderId===user.id?user.displayName?.slice(0,2).toUpperCase():currentChatInfo?.avatar}
+                                                {msg.senderId===user.id ? (
+                                                    user.avatar && !user.avatar.includes('ui-avatars.com') ?
+                                                    <img src={user.avatar} alt="me" style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:12}}/> :
+                                                    user.displayName?.slice(0,2).toUpperCase()
+                                                ) : (
+                                                    currentChatInfo?.avatarUrl ?
+                                                    <img src={currentChatInfo.avatarUrl} alt={currentChatInfo.name} style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:12}}/> :
+                                                    currentChatInfo?.avatar
+                                                )}
                                             </div>
                                             <div className="message-content">{msg.content}</div>
                                         </div>
@@ -424,6 +483,14 @@ function App() {
                     </div>
                 </div>
             </div>
+            {/* 隐藏的文件输入框用于头像上传 */}
+            <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={handleFileSelect}
+            />
         </div>
     );
 }

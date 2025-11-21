@@ -40,6 +40,7 @@ type ChatAction =
     | { type: 'ADD_MESSAGE'; payload: Message }
     | { type: 'SET_ONLINE_USERS'; payload: SocketUser[] }
     | { type: 'UPDATE_USER_STATUS'; payload: { userId: string; status: string } }
+    | { type: 'UPDATE_ONLINE_USER'; payload: SocketUser }
     | { type: 'SET_TYPING_USERS'; payload: TypingUser[] }
     | { type: 'MARK_MESSAGES_READ'; payload: { chatId: string; userId: string } }
     | { type: 'USER_LEFT_GROUP'; payload: { chatId: string; userId: string } }
@@ -115,6 +116,11 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
                 return chat;
             });
             return { ...state, onlineUsers: usersWithStatus, chats: chatsWithStatus };
+        case 'UPDATE_ONLINE_USER':
+            const updatedOnlineUsers = state.onlineUsers.map(user =>
+                user.id === action.payload.id ? { ...user, ...action.payload } : user
+            );
+            return { ...state, onlineUsers: updatedOnlineUsers };
         case 'SET_TYPING_USERS': return { ...state, typingUsers: action.payload };
         case 'MARK_MESSAGES_READ':
             const { chatId: readChatId, userId: readUserId } = action.payload;
@@ -232,6 +238,14 @@ export function ChatProvider({ children }: ChatProviderProps) {
 
         socketService.onError(({ message }) => {
             dispatch({ type: 'SET_ERROR', payload: message });
+        });
+
+        socketService.onUserProfileUpdated((updatedUser) => {
+            // 更新在线用户列表中的用户信息（包括头像、显示名称等）
+            dispatch({ type: 'UPDATE_ONLINE_USER', payload: updatedUser });
+
+            // 强制更新所有聊天中该用户的头像缓存
+            console.log('[CLIENT] Received profile update for user:', updatedUser.displayName, updatedUser.avatar);
         });
     };
 
@@ -370,6 +384,32 @@ export function ChatProvider({ children }: ChatProviderProps) {
             const updatedUser = await apiService.updateUser(state.user.id, data);
             dispatch({ type: 'SET_USER', payload: { user: updatedUser, token: state.token! } });
             apiService.setUser(updatedUser);
+
+            // 通过 Socket 通知其他在线用户用户信息已更新
+            console.log('[CLIENT] Sending profile update via Socket:', {
+                displayName: updatedUser.displayName,
+                avatar: updatedUser.avatar
+            });
+            socketService.updateProfile({
+                displayName: updatedUser.displayName,
+                avatar: updatedUser.avatar
+            });
+
+            // 强制刷新在线用户列表以确保同步
+            setTimeout(async () => {
+                try {
+                    const onlineUsers = await apiService.getOnlineUsers();
+                    const socketUsers: SocketUser[] = onlineUsers.map(u => ({
+                        ...u,
+                        socketId: '',
+                        status: u.status === 'offline' ? 'online' : u.status
+                    }));
+                    dispatch({ type: 'SET_ONLINE_USERS', payload: socketUsers });
+                    console.log('[CLIENT] Refreshed online users after profile update');
+                } catch (e) {
+                    console.error('[CLIENT] Failed to refresh online users:', e);
+                }
+            }, 500); // 延迟500ms确保服务器端已更新
         } catch (error: any) {
             dispatch({ type: 'SET_ERROR', payload: error.message });
             throw error;

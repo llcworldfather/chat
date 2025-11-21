@@ -146,6 +146,10 @@ class SocketService {
         this.socket?.on('error', callback);
     }
 
+    onUserProfileUpdated(callback: (user: SocketUser) => void): void {
+        this.socket?.on('user_profile_updated', callback);
+    }
+
     // Remove event listeners
     off(event: string, callback?: Function): void {
         if (callback) {
@@ -199,6 +203,10 @@ class SocketService {
 
     leaveGroup(chatId: string): void {
         this.socket?.emit('leave_group', chatId);
+    }
+
+    updateProfile(data: { displayName?: string; avatar?: string }): void {
+        this.socket?.emit('update_profile', data);
     }
 
     getSocket(): Socket | null {
