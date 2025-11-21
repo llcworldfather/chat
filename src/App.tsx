@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, ChevronLeft, LogOut, Search, UserPlus, X } from 'lucide-react';
+import { Send, ChevronLeft, LogOut, Search, UserPlus, X, AlertCircle, UserX, UserCheck } from 'lucide-react';
 import { useChat } from './context/ChatContext';
 import { socketService } from './services/socket';
 import './index.css';
@@ -30,6 +30,14 @@ function App() {
     const [mobileShowChat, setMobileShowChat] = useState(false);
     const [showAddModal, setShowAddModal] = useState(false);
     const [newContactName, setNewContactName] = useState('');
+
+    // --- 警告弹窗状态 ---
+    const [warningModal, setWarningModal] = useState<{ show: boolean; title: string; message: string; type: 'warning' | 'error' | 'success' }>({
+        show: false,
+        title: '',
+        message: '',
+        type: 'warning'
+    });
 
     // --- 用户信息缓存 ---
     const [userCache, setUserCache] = useState<Map<string, any>>(new Map());
@@ -63,7 +71,7 @@ function App() {
     // 从聊天列表中提取并缓存用户信息
     useEffect(() => {
         if (chats && chats.length > 0) {
-            console.log('Chats updated, extracting user info:', chats);
+            // console.log('Chats updated, extracting user info:', chats); // Log reduced
 
             setUserCache(prev => {
                 const newCache = new Map(prev);
@@ -76,7 +84,6 @@ function App() {
                             if (typeof participant === 'object' && participant !== null && participant.id) {
                                 const displayName = participant.displayName || participant.username;
                                 if (displayName) {
-                                    console.log(`Caching user from chat: ${participant.id} -> ${displayName}`);
                                     newCache.set(participant.id, participant);
                                 }
                             }
@@ -84,11 +91,7 @@ function App() {
                             else if (typeof participant === 'string') {
                                 const onlineUser = onlineUsers.find(u => u.id === participant);
                                 if (onlineUser) {
-                                    const displayName = onlineUser.displayName || onlineUser.username;
-                                    if (displayName) {
-                                        console.log(`Caching online user from chat: ${participant} -> ${displayName}`);
-                                        newCache.set(participant, onlineUser);
-                                    }
+                                    newCache.set(participant, onlineUser);
                                 }
                             }
                         });
@@ -98,19 +101,11 @@ function App() {
                     if ((chat as any).participantsWithInfo && Array.isArray((chat as any).participantsWithInfo)) {
                         (chat as any).participantsWithInfo.forEach((participant: any) => {
                             if (participant && participant.id && (participant.displayName || participant.username)) {
-                                const displayName = participant.displayName || participant.username;
-                                console.log(`Caching user from participantsWithInfo: ${participant.id} -> ${displayName}`);
                                 newCache.set(participant.id, participant);
                             }
                         });
                     }
                 });
-
-                console.log('Updated user cache size:', newCache.size);
-                console.log('Cache entries:', Array.from(newCache.entries()).map(([id, user]: [string, any]) => ({
-                    id,
-                    displayName: user.displayName || user.username
-                })));
                 return newCache;
             });
         }
@@ -138,11 +133,6 @@ function App() {
 
     // --- 获取用户显示名称（增强版）---
     const getUserDisplayName = (userId: string): string => {
-        console.log(`Getting display name for user: ${userId}`);
-        console.log('Local user cache size:', userCache.size);
-        console.log('Online users count:', onlineUsers.length);
-        console.log('Chats count:', chats.length);
-
         // 如果是自己
         if (user?.id === userId) {
             return user.displayName || user.username;
@@ -153,7 +143,6 @@ function App() {
         if (cachedUser) {
             const displayName = cachedUser.displayName || cachedUser.username;
             if (displayName && displayName !== userId) {
-                console.log(`Found display name from local cache: ${displayName} for user ${userId}`);
                 return displayName;
             }
         }
@@ -162,84 +151,106 @@ function App() {
         const onlineUser = onlineUsers.find(u => u.id === userId);
         if (onlineUser) {
             const displayName = onlineUser.displayName || onlineUser.username;
-            // 立即更新缓存
-            if (displayName) {
-                console.log(`Found display name from online users: ${displayName} for user ${userId}`);
-                setUserCache(prev => {
-                    const newCache = new Map(prev);
-                    newCache.set(userId, onlineUser);
-                    return newCache;
-                });
-                return displayName;
-            }
+            return displayName || `User ${userId.slice(0, 6)}`;
         }
 
         // 3. 从聊天列表中查找（深度查找）
         for (const chat of chats) {
-            // 首先检查 participantsWithInfo（来自好友添加事件）
             if ((chat as any).participantsWithInfo) {
                 const participantsWithInfo = (chat as any).participantsWithInfo;
                 for (const participant of participantsWithInfo) {
                     if (participant && participant.id === userId) {
-                        const displayName = participant.displayName || participant.username;
-                        if (displayName) {
-                            console.log(`Found display name from chat participantsWithInfo: ${displayName} for user ${userId}`);
-                            // 更新缓存
-                            setUserCache(prev => {
-                                const newCache = new Map(prev);
-                                newCache.set(userId, participant);
-                                return newCache;
-                            });
-                            return displayName;
-                        }
+                        return participant.displayName || participant.username || `User ${userId.slice(0, 6)}`;
                     }
                 }
             }
 
-            // 然后检查标准的 participants 数组
             if (chat.participants) {
                 for (const p of chat.participants) {
                     const participant = p as any;
                     if (typeof participant === 'object' && participant !== null) {
                         if (participant.id === userId) {
-                            const displayName = participant.displayName || participant.username;
-                            if (displayName) {
-                                console.log(`Found display name from chat participants: ${displayName} for user ${userId}`);
-                                // 更新缓存
-                                setUserCache(prev => {
-                                    const newCache = new Map(prev);
-                                    newCache.set(userId, participant);
-                                    return newCache;
-                                });
-                                return displayName;
-                            }
+                            return participant.displayName || participant.username || `User ${userId.slice(0, 6)}`;
                         }
-                    } else if (p === userId) {
-                        // ID 字符串匹配，但无法获取名称
-                        console.log(`Found ID string match in chat participants for user ${userId}, but no display info`);
-                        break;
                     }
                 }
             }
         }
 
-        // 4. 最后回退到用户ID显示
-        console.warn(`Could not find display name for user: ${userId}, falling back to ID display`);
-        console.log('Local cache keys:', Array.from(userCache.keys()));
-        console.log('Online user IDs:', onlineUsers.map(u => u.id));
-
         return `User ${userId.slice(0, 6)}`;
+    };
+
+    // --- 解析用户信息辅助函数 ---
+    const resolveUser = (participant: any) => {
+        if (typeof participant === 'object' && participant !== null && participant.username) {
+            return participant;
+        }
+        const id = typeof participant === 'string' ? participant : participant.id;
+        return userCache.get(id) || onlineUsers.find(u => u.id === id);
     };
 
     // --- 添加好友逻辑 ---
     const handleAddContact = async () => {
-        if (!newContactName.trim()) return;
+        const targetName = newContactName.trim();
+        if (!targetName) return;
 
-        console.log('Adding friend:', newContactName);
-        await addFriend(newContactName);
+        // 1. 禁止添加自己
+        if (user?.username === targetName) {
+            setWarningModal({
+                show: true,
+                title: '无法添加自己',
+                message: '您不能将自己添加为好友，请尝试添加其他人。',
+                type: 'warning'
+            });
+            return;
+        }
 
-        setNewContactName('');
-        setShowAddModal(false);
+        // 2. 禁止重复添加
+        // 遍历所有私聊，检查对方的 username 是否匹配
+        const isDuplicate = chats.some(chat => {
+            if (chat.type !== 'private') return false;
+
+            // 找到除了自己以外的参与者
+            const otherPart = chat.participants.find(p => {
+                return p !== user?.id;
+            });
+
+            if (!otherPart) return false;
+
+            // 尝试解析用户对象以获取 username
+            const otherUser = resolveUser(otherPart);
+
+            // 如果能获取到 username，则进行比较；
+            // 注意：如果本地缓存没有该用户信息，可能导致无法判断重复，但这在已加载好友列表后通常不会发生
+            return otherUser && otherUser.username === targetName;
+        });
+
+        if (isDuplicate) {
+            setWarningModal({
+                show: true,
+                title: '好友已存在',
+                message: `用户 "${targetName}" 已经是您的好友了，无需重复添加。`,
+                type: 'warning'
+            });
+            return;
+        }
+
+        try {
+            console.log('Adding friend:', targetName);
+            await addFriend(targetName);
+
+            // 成功后关闭添加弹窗，并清空输入
+            setNewContactName('');
+            setShowAddModal(false);
+        } catch (err: any) {
+            // 处理后端返回的错误（例如用户不存在）
+            setWarningModal({
+                show: true,
+                title: '添加失败',
+                message: err.message || '无法添加该用户，请检查用户名是否正确。',
+                type: 'error'
+            });
+        }
     };
 
     const handleSendMessage = () => {
@@ -287,6 +298,11 @@ function App() {
                 online: true
             };
         }
+    };
+
+    // 关闭警告弹窗
+    const closeWarningModal = () => {
+        setWarningModal(prev => ({ ...prev, show: false }));
     };
 
     if (!user) {
@@ -406,6 +422,38 @@ function App() {
     return (
         <div className="app-wrapper">
             <div className="glass-container">
+                {/* 警告/提示弹窗 - 复用 glass 样式 */}
+                {warningModal.show && (
+                    <div className="modal-overlay" style={{ zIndex: 210 }}>
+                        <div className="modal-content" style={{ alignItems: 'center', textAlign: 'center', width: '300px', padding: '30px 20px' }}>
+                            <div
+                                style={{
+                                    width: 60,
+                                    height: 60,
+                                    borderRadius: '50%',
+                                    backgroundColor: warningModal.type === 'error' ? '#fff5f5' : '#fffaf0',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    marginBottom: 15,
+                                    color: warningModal.type === 'error' ? '#e53e3e' : '#dd6b20'
+                                }}
+                            >
+                                {warningModal.type === 'error' ? <UserX size={32} /> : <AlertCircle size={32} />}
+                            </div>
+                            <h3 style={{ fontSize: '18px', fontWeight: 700, color: '#2d3748', marginBottom: '8px' }}>
+                                {warningModal.title}
+                            </h3>
+                            <p style={{ fontSize: '14px', color: '#718096', marginBottom: '24px', lineHeight: 1.5 }}>
+                                {warningModal.message}
+                            </p>
+                            <button className="primary-btn" onClick={closeWarningModal} style={{ marginTop: 0, padding: '12px' }}>
+                                知道了
+                            </button>
+                        </div>
+                    </div>
+                )}
+
                 {/* 添加好友弹窗 */}
                 {showAddModal && (
                     <div className="modal-overlay">
