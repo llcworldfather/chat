@@ -107,6 +107,7 @@ export interface ChatContextType {
   typingStart: (chatId: string) => void;
   typingStop: (chatId: string) => void;
   addFriend: (friendName: string) => void;
+  updateUserProfile: (data: { displayName?: string; avatar?: string; password?: string; email?: string }) => Promise<void>; // [新增]
 }
 
 export interface AppState {
