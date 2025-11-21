@@ -30,7 +30,7 @@ export function LoginForm({ onToggleMode }: LoginFormProps) {
     const newErrors: Record<string, string> = {};
 
     if (!formData.username.trim()) {
-      newErrors.username = '请输入用户名';
+      newErrors.username = '请输入账号';
     }
 
     if (!formData.password.trim()) {
@@ -61,7 +61,7 @@ export function LoginForm({ onToggleMode }: LoginFormProps) {
               <MessageCircle className="w-8 h-8 text-white" />
             </div>
             <h1 className="text-2xl font-bold text-gray-900 mb-2">欢迎回来</h1>
-            <p className="text-gray-600">登录账户继续聊天</p>
+            <p className="text-gray-600">登录账号开始聊天</p>
           </div>
 
           {/* 错误消息 */}
@@ -73,10 +73,10 @@ export function LoginForm({ onToggleMode }: LoginFormProps) {
 
           {/* 登录表单 */}
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* 用户名字段 */}
+            {/* 账号字段 */}
             <div>
               <label htmlFor="username" className="block text-sm font-medium text-gray-900 mb-2">
-                用户名
+                账号
               </label>
               <div className="relative">
                 <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
@@ -87,7 +87,7 @@ export function LoginForm({ onToggleMode }: LoginFormProps) {
                   value={formData.username}
                   onChange={handleInputChange}
                   className={`input-field pl-10 w-full ${errors.username ? 'border-red-500 focus:ring-red-500' : ''}`}
-                  placeholder="请输入用户名"
+                  placeholder="请输入账号"
                   disabled={loading}
                 />
               </div>

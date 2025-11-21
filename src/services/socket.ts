@@ -1,7 +1,7 @@
 import { io, Socket } from 'socket.io-client';
 import { User, Message, Chat, SocketUser, CreateGroupData, TypingUser } from '../types';
 
-const SERVER_URL = process.env.REACT_APP_SERVER_URL || 'http://localhost:5003';
+const SERVER_URL = process.env.REACT_APP_SERVER_URL || 'http://localhost:5001';
 
 class SocketService {
     private socket: Socket | null = null;

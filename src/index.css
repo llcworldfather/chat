@@ -9,6 +9,26 @@
     --accent-color: #4facfe;
 }
 
+/* --- 自定义滚动条样式 --- */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 10px;
+    transition: background 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.2);
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
@@ -175,13 +195,14 @@ body {
 .switch-text { text-align: center; margin-top: 20px; font-size: 14px; color: var(--text-light); font-weight: 600; }
 .switch-link { color: var(--accent-color); cursor: pointer; font-weight: 700; margin-left: 5px; }
 
-/* --- 聊天界面 --- */
+/* --- 聊天界面布局 --- */
 .chat-layout {
     display: grid;
     grid-template-columns: 300px 1fr;
     height: 100%;
     width: 100%;
     gap: 0;
+    overflow: hidden;
 }
 
 /* 侧边栏 */
@@ -190,6 +211,8 @@ body {
     border-right: 1px solid rgba(255, 255, 255, 0.4);
     display: flex;
     flex-direction: column;
+    height: 100%;
+    min-height: 0; /* 关键: 允许 Flex 子元素滚动 */
 }
 
 .sidebar-header {
@@ -197,14 +220,35 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-shrink: 0; /* 头部固定 */
 }
 .sidebar-header h3 { font-size: 22px; font-weight: 800; color: var(--text-main); }
 .logout-btn { border:none; background: transparent; color: #ff6b6b; cursor: pointer; font-size: 13px; font-weight: 600;}
 
+/* 联系人列表 (滚动区域) */
 .contact-list {
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 10px 15px;
+}
+
+/* 底部个人信息 (固定区域) */
+.sidebar-footer {
+    flex-shrink: 0;
+    padding: 16px 20px;
+    border-top: 1px solid rgba(255, 255, 255, 0.4);
+    background: rgba(255, 255, 255, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    transition: background 0.2s ease;
+    backdrop-filter: blur(10px);
+}
+
+.sidebar-footer:hover {
+    background: rgba(255, 255, 255, 0.5);
 }
 
 .contact-item {
@@ -223,11 +267,10 @@ body {
     box-shadow: 0 4px 15px rgba(0,0,0,0.05);
 }
 
-/* [修改] 全局基础头像尺寸调整为 52px (侧边栏默认使用) */
 .avatar {
     width: 52px;
     height: 52px;
-    border-radius: 18px; /* 圆角也稍微加大 */
+    border-radius: 18px;
     display: flex; align-items: center; justify-content: center;
     color: white; font-weight: 700; font-size: 20px;
     position: relative;
@@ -245,6 +288,8 @@ body {
     flex-direction: column;
     background: rgba(255, 255, 255, 0.25);
     position: relative;
+    height: 100%;
+    min-height: 0; /* 关键: 允许 Flex 子元素滚动 */
 }
 
 .chat-header {
@@ -253,6 +298,7 @@ body {
     backdrop-filter: blur(10px);
     border-bottom: 1px solid rgba(255, 255, 255, 0.4);
     display: flex; align-items: center; gap: 15px;
+    flex-shrink: 0; /* 头部固定 */
 }
 .mobile-back { display: none; cursor: pointer; border:none; background:transparent; font-size: 20px; color: var(--text-main);}
 
@@ -260,9 +306,11 @@ body {
     flex: 1;
     padding: 30px;
     overflow-y: auto;
+    overflow-x: hidden;
     display: flex;
     flex-direction: column;
     gap: 24px;
+    scroll-behavior: smooth;
 }
 
 .message { display: flex; gap: 14px; max-width: 80%; animation: slideUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
@@ -295,6 +343,7 @@ body {
     display: flex;
     gap: 15px;
     border-top: 1px solid rgba(255, 255, 255, 0.4);
+    flex-shrink: 0; /* 输入框固定 */
 }
 
 .chat-input {
@@ -356,11 +405,8 @@ body {
     .mobile-back { display: block; }
 }
 
-/* ...保留原有代码... */
+/* --- 弹窗与按钮 --- */
 
-/* --- 新增样式: 弹窗与按钮 --- */
-
-/* 模态框遮罩 */
 .modal-overlay {
     position: absolute;
     inset: 0;
@@ -373,7 +419,6 @@ body {
     animation: fadeIn 0.3s ease;
 }
 
-/* 模态框内容容器 (复用部分 glass 效果) */
 .modal-content {
     width: 340px;
     padding: 30px;
@@ -385,7 +430,6 @@ body {
     flex-direction: column;
 }
 
-/* 通用图标按钮 */
 .icon-btn {
     border: none;
     background: transparent;

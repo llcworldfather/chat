@@ -254,9 +254,18 @@ export function ChatProvider({ children }: ChatProviderProps) {
         const initializeApp = async () => {
             if (state.user) return;
             const token = apiService.getToken();
-            const user = apiService.getUser();
-            if (token && user) {
-                dispatch({ type: 'SET_USER', payload: { user, token } });
+            const cachedUser = apiService.getUser();
+            if (token && cachedUser) {
+                try {
+                    // 从数据库获取最新的用户信息
+                    const freshUserData = await apiService.getUserById(cachedUser.id);
+                    dispatch({ type: 'SET_USER', payload: { user: freshUserData, token } });
+                    apiService.setUser(freshUserData);
+                } catch (error) {
+                    // 如果获取最新信息失败，使用缓存的数据
+                    console.error('Failed to fetch fresh user data, using cached:', error);
+                    dispatch({ type: 'SET_USER', payload: { user: cachedUser, token } });
+                }
                 try {
                     socketService.initialize(token);
                     setupSocketListeners();
@@ -382,17 +391,21 @@ export function ChatProvider({ children }: ChatProviderProps) {
         dispatch({ type: 'SET_LOADING', payload: true });
         try {
             const updatedUser = await apiService.updateUser(state.user.id, data);
-            dispatch({ type: 'SET_USER', payload: { user: updatedUser, token: state.token! } });
-            apiService.setUser(updatedUser);
+
+            // 重新从数据库获取最新的用户信息以确保数据同步
+            const freshUserData = await apiService.getUserById(state.user.id);
+
+            dispatch({ type: 'SET_USER', payload: { user: freshUserData, token: state.token! } });
+            apiService.setUser(freshUserData);
 
             // 通过 Socket 通知其他在线用户用户信息已更新
             console.log('[CLIENT] Sending profile update via Socket:', {
-                displayName: updatedUser.displayName,
-                avatar: updatedUser.avatar
+                displayName: freshUserData.displayName,
+                avatar: freshUserData.avatar
             });
             socketService.updateProfile({
-                displayName: updatedUser.displayName,
-                avatar: updatedUser.avatar
+                displayName: freshUserData.displayName,
+                avatar: freshUserData.avatar
             });
 
             // 强制刷新在线用户列表以确保同步

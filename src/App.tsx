@@ -120,7 +120,7 @@ function App() {
     }, [showProfileModal, user]);
 
     const handleLogin = async () => { if (!username || !password) return; await login(username, password); };
-    const handleRegister = async () => { if (!username || !email || !password) return; await register({ username, displayName: username, password, email }); };
+    const handleRegister = async () => { if (!username || !password) return; await register({ username, displayName: username, password }); };
     const handleLogout = () => { logout(); setAuthMode('login'); setMobileShowChat(false); };
 
     const getUserDisplayName = (userId: string): string => {
@@ -238,11 +238,11 @@ function App() {
 
                             {authMode === 'register' && (
                                 <>
-                                    <div className="input-group"><label>用户名</label><input className="input-field" value={username} onChange={e=>setUsername(e.target.value)} disabled={loading}/></div>
+                                    <div className="input-group"><label>账号</label><input className="input-field" value={username} onChange={e=>setUsername(e.target.value)} disabled={loading}/></div>
                                     <div className="input-group"><label>邮箱</label><input className="input-field" value={email} onChange={e=>setEmail(e.target.value)} disabled={loading}/></div>
                                 </>
                             )}
-                            {authMode === 'login' && <div className="input-group"><label>用户名</label><input className="input-field" value={username} onChange={e=>setUsername(e.target.value)} disabled={loading}/></div>}
+                            {authMode === 'login' && <div className="input-group"><label>账号</label><input className="input-field" value={username} onChange={e=>setUsername(e.target.value)} disabled={loading}/></div>}
 
                             <div className="input-group"><label>密码</label><input className="input-field" type="password" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==='Enter'&&(authMode==='login'?handleLogin():handleRegister())} disabled={loading}/></div>
 
@@ -279,7 +279,7 @@ function App() {
                                 </div>
                             )}
                             <div className="input-group">
-                                <label style={{display:'block', marginBottom:8}}>好友用户名</label>
+                                <label style={{display:'block', marginBottom:8}}>好友账号</label>
                                 <div style={{position:'relative'}}>
                                     <input className="input-field" style={{paddingRight:40, borderColor: modalError ? '#fca5a5' : undefined}} autoFocus value={newContactName} onChange={e => { setNewContactName(e.target.value); setModalError(''); }} onKeyDown={e => e.key==='Enter' && !loading && handleAddContact()} placeholder="输入用户名..."/>
                                     <div style={{position:'absolute', right:16, top:'50%', transform:'translateY(-50%)', color:'#a0aec0'}}><UserPlus size={18}/></div>

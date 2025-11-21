@@ -33,11 +33,11 @@ export function RegisterForm({ onToggleMode }: RegisterFormProps) {
     const newErrors: Record<string, string> = {};
 
     if (!formData.username.trim()) {
-      newErrors.username = '请输入用户名';
+      newErrors.username = '请输入账号';
     } else if (formData.username.length < 3) {
-      newErrors.username = '用户名至少需要3个字符';
+      newErrors.username = '账号至少需要3个字符';
     } else if (!/^[a-zA-Z0-9_]+$/.test(formData.username)) {
-      newErrors.username = '用户名只能包含字母、数字和下划线';
+      newErrors.username = '账号只能包含字母、数字和下划线';
     }
 
     if (!formData.displayName.trim()) {
@@ -101,10 +101,10 @@ export function RegisterForm({ onToggleMode }: RegisterFormProps) {
 
           {/* 注册表单 */}
           <form onSubmit={handleSubmit} className="space-y-5">
-            {/* 用户名字段 */}
+            {/* 账号字段 */}
             <div>
               <label htmlFor="username" className="block text-sm font-medium text-gray-900 mb-2">
-                用户名
+                账号
               </label>
               <div className="relative">
                 <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
@@ -115,7 +115,7 @@ export function RegisterForm({ onToggleMode }: RegisterFormProps) {
                   value={formData.username}
                   onChange={handleInputChange}
                   className={`input-field pl-10 w-full ${errors.username ? 'border-red-500 focus:ring-red-500' : ''}`}
-                  placeholder="选择一个用户名"
+                  placeholder="选择一个账号"
                   disabled={loading}
                   autoComplete="username"
                 />
@@ -131,7 +131,7 @@ export function RegisterForm({ onToggleMode }: RegisterFormProps) {
                 显示名称
               </label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
                   type="text"
                   id="displayName"
@@ -139,7 +139,7 @@ export function RegisterForm({ onToggleMode }: RegisterFormProps) {
                   value={formData.displayName}
                   onChange={handleInputChange}
                   className={`input-field pl-10 w-full ${errors.displayName ? 'border-red-500 focus:ring-red-500' : ''}`}
-                  placeholder="您的显示名称"
+                  placeholder="我们应该怎么称呼您"
                   disabled={loading}
                   autoComplete="name"
                 />

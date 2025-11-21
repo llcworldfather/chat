@@ -1,7 +1,7 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import { AuthUser, RegisterRequest, LoginRequest, User } from '../types';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5003/api';
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
 
 class ApiService {
     private api: AxiosInstance;
