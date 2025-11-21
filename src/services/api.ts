@@ -68,17 +68,21 @@ class ApiService {
     }
 
     async getCurrentUser(): Promise<User> {
-        return this.request<User>({
+        const response = await this.request<any>({
             method: 'GET',
             url: '/auth/me',
         });
+        // [修复] 兼容处理：如果返回的数据包含 data 字段，则使用 data 字段
+        return response.data || response;
     }
 
     async getAllUsers(): Promise<User[]> {
-        return this.request<User[]>({
+        const response = await this.request<any>({
             method: 'GET',
             url: '/users',
         });
+        // [修复] 兼容处理
+        return response.data || response;
     }
 
     async getUserById(id: string): Promise<User> {
@@ -88,12 +92,15 @@ class ApiService {
         console.log('getUserById called with ID:', id);
 
         try {
-            const user = await this.request<User>({
+            const response = await this.request<any>({
                 method: 'GET',
                 url: `/users/${id}`,
             });
 
-            console.log('getUserById: User received from API:', user);
+            console.log('getUserById: Response received from API:', response);
+
+            // [修复] 兼容处理：如果返回的数据包含 data 字段，则使用 data 字段
+            const user = response.data || response;
 
             // Validate user response
             if (!user || !user.id) {
@@ -112,11 +119,13 @@ class ApiService {
 
     // [新增] 更新用户信息接口
     async updateUser(id: string, data: Partial<User> & { password?: string }): Promise<User> {
-        return this.request<User>({
+        const response = await this.request<any>({
             method: 'PUT',
             url: `/users/${id}`,
             data,
         });
+        // [修复] 同样处理 updateUser 的返回值
+        return response.data || response;
     }
 
     async getOnlineUsers(): Promise<User[]> {
