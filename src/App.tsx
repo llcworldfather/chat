@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, ChevronLeft, LogOut, Search, UserPlus, X, AlertCircle, Settings, Camera, Lock, User as UserIcon, Save, CheckCircle } from 'lucide-react';
 import { useChat } from './context/ChatContext';
+import { socketService } from './services/socket';
 import { formatTime, formatDateTime, formatMessageDate } from './utils/timeUtils';
 import './index.css';
 
@@ -151,9 +152,16 @@ function App() {
         }
     };
 
-    const generateRandomAvatar = () => {
-        const url = `https://ui-avatars.com/api/?name=${encodeURIComponent(profileForm.displayName || user?.username || '')}&background=random&size=128`;
-        setProfileForm(prev => ({ ...prev, avatar: url }));
+    const generateRandomAvatar = async () => {
+        try {
+            const avatarUrl = await socketService.getRandomAvatar();
+            setProfileForm(prev => ({ ...prev, avatar: avatarUrl }));
+        } catch (error) {
+            console.error('Failed to get random avatar:', error);
+            // Fallback to the original UI avatars if random avatars fail
+            const url = `https://ui-avatars.com/api/?name=${encodeURIComponent(profileForm.displayName || user?.username || '')}&background=random&size=128`;
+            setProfileForm(prev => ({ ...prev, avatar: url }));
+        }
     };
     const handleAvatarClick = () => { fileInputRef.current?.click(); };
     const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {

@@ -82,10 +82,32 @@ class ApiService {
     }
 
     async getUserById(id: string): Promise<User> {
-        return this.request<User>({
-            method: 'GET',
-            url: `/users/${id}`,
-        });
+        if (!id) {
+            throw new Error('getUserById: ID is required');
+        }
+        console.log('getUserById called with ID:', id);
+
+        try {
+            const user = await this.request<User>({
+                method: 'GET',
+                url: `/users/${id}`,
+            });
+
+            console.log('getUserById: User received from API:', user);
+
+            // Validate user response
+            if (!user || !user.id) {
+                console.error('getUserById: Invalid user response:', user);
+                throw new Error('Invalid user data received from server');
+            }
+
+            console.log('getUserById: Valid user received:', user);
+            return user;
+        } catch (error: any) {
+            console.error('getUserById API error:', error);
+            console.error('Error response:', error.response?.data);
+            throw error;
+        }
     }
 
     // [新增] 更新用户信息接口

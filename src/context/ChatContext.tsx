@@ -84,6 +84,12 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         case 'SET_LOADING': return { ...state, loading: action.payload };
         case 'SET_ERROR': return { ...state, error: action.payload, loading: false };
         case 'SET_USER':
+            // Validate user object before setting
+            if (!action.payload.user || !action.payload.user.id) {
+                console.error('SET_USER: Invalid user object received:', action.payload.user);
+                return state; // Don't update state with invalid user
+            }
+            console.log('SET_USER: Setting user with ID:', action.payload.user.id, 'User:', action.payload.user);
             return { ...state, user: action.payload.user, token: action.payload.token, loading: false, error: null };
         case 'CLEAR_USER': return { ...initialState, user: null, token: null, currentUser: null, userCache: state.userCache };
         case 'SET_CONNECTION_STATUS': return { ...state, isConnected: action.payload };
@@ -214,8 +220,33 @@ export function ChatProvider({ children }: ChatProviderProps) {
     const fetchingIds = useRef<Set<string>>(new Set());
 
     const getUserInfo = (userId: string) => {
-        if (state.user?.id === userId) return state.user;
-        return state.onlineUsers.find(u => u.id === userId) || state.userCache.get(userId);
+        // Debug logging for troubleshooting
+        if (process.env.NODE_ENV === 'development') {
+            console.log(`getUserInfo called for userId: ${userId}`);
+            console.log('Current user:', state.user);
+        }
+
+        if (state.user?.id === userId) {
+            if (process.env.NODE_ENV === 'development') {
+                console.log(`Returning current user for userId: ${userId}`);
+            }
+            return state.user;
+        }
+
+        const onlineUser = state.onlineUsers.find(u => u.id === userId);
+        if (onlineUser) {
+            if (process.env.NODE_ENV === 'development') {
+                console.log(`Found online user for userId: ${userId}`, onlineUser);
+            }
+            return onlineUser;
+        }
+
+        const cachedUser = state.userCache.get(userId);
+        if (process.env.NODE_ENV === 'development') {
+            console.log(`Found cached user for userId: ${userId}`, cachedUser);
+        }
+
+        return cachedUser;
     };
 
     // [新增] 清除错误的方法
@@ -333,18 +364,30 @@ export function ChatProvider({ children }: ChatProviderProps) {
         });
         socketService.onError(({ message }) => dispatch({ type: 'SET_ERROR', payload: message }));
         socketService.onUserProfileUpdated((updatedUser) => {
+            console.log('Received user_profile_updated event:', updatedUser);
+
+            // Only update online users list, don't update current user state here
+            // to avoid conflicts with local updates
             dispatch({ type: 'UPDATE_ONLINE_USER', payload: updatedUser });
-            const userToCache: User = {
-                id: updatedUser.id,
-                username: updatedUser.username,
-                displayName: updatedUser.displayName,
-                avatar: updatedUser.avatar,
-                status: (updatedUser.status === 'online' || updatedUser.status === 'away') ? updatedUser.status : 'offline',
-                email: '',
-                lastSeen: new Date(),
-                joinedAt: new Date()
-            };
-            dispatch({ type: 'CACHE_USERS', payload: [userToCache] });
+
+            // Only cache user data if it's NOT the current user
+            // Current user state is managed by updateUserProfile function
+            if (updatedUser.id !== state.user?.id) {
+                const userToCache: User = {
+                    id: updatedUser.id,
+                    username: updatedUser.username,
+                    displayName: updatedUser.displayName,
+                    avatar: updatedUser.avatar,
+                    status: (updatedUser.status === 'online' || updatedUser.status === 'away') ? updatedUser.status : 'offline',
+                    email: '',
+                    lastSeen: new Date(),
+                    joinedAt: new Date()
+                };
+                dispatch({ type: 'CACHE_USERS', payload: [userToCache] });
+                console.log('Cached other user data:', userToCache.displayName);
+            } else {
+                console.log('Skipping cache update for current user to avoid conflicts');
+            }
         });
     };
 
@@ -353,12 +396,34 @@ export function ChatProvider({ children }: ChatProviderProps) {
             if (state.user) return;
             const token = apiService.getToken();
             const cachedUser = apiService.getUser();
+
+            console.log('=== INITIALIZATION DEBUG ===');
+            console.log('Token found:', !!token);
+            console.log('Cached user:', cachedUser);
+
             if (token && cachedUser) {
+                // Validate cached user before using
+                if (!cachedUser.id) {
+                    console.error('Cached user has no ID, clearing cache and forcing logout');
+                    apiService.removeUser();
+                    localStorage.removeItem('token');
+                    return;
+                }
+
                 try {
                     const freshUserData = await apiService.getUserById(cachedUser.id);
-                    dispatch({ type: 'SET_USER', payload: { user: freshUserData, token } });
-                    apiService.setUser(freshUserData);
+                    console.log('Fresh user data from server:', freshUserData);
+
+                    // Validate fresh user data
+                    if (!freshUserData || !freshUserData.id) {
+                        console.error('Invalid fresh user data received, using cached user');
+                        dispatch({ type: 'SET_USER', payload: { user: cachedUser, token } });
+                    } else {
+                        dispatch({ type: 'SET_USER', payload: { user: freshUserData, token } });
+                        apiService.setUser(freshUserData);
+                    }
                 } catch (error) {
+                    console.error('Error fetching fresh user data, using cached:', error);
                     dispatch({ type: 'SET_USER', payload: { user: cachedUser, token } });
                 }
                 try {
@@ -493,29 +558,47 @@ export function ChatProvider({ children }: ChatProviderProps) {
     };
 
     const updateUserProfile = async (data: { displayName?: string; avatar?: string; password?: string; email?: string }) => {
-        if (!state.user) return;
+        console.log('=== UPDATE PROFILE START ===');
+
+        // Get fresh user from localStorage to avoid state corruption issues
+        const freshUser = apiService.getUser();
+        console.log('Fresh user from localStorage:', freshUser);
+
+        if (!freshUser || !freshUser.id) {
+            console.error('ERROR: No valid user found in localStorage!');
+            dispatch({ type: 'SET_ERROR', payload: 'User session corrupted. Please log in again.' });
+            // Clear corrupted data
+            apiService.removeUser();
+            localStorage.removeItem('token');
+            return;
+        }
+
+        console.log('User ID from localStorage:', freshUser.id);
+        console.log('Data to update:', data);
+
+        const userId = freshUser.id;
+
         dispatch({ type: 'SET_LOADING', payload: true });
         try {
-            await apiService.updateUser(state.user.id, data);
-            const freshUserData = await apiService.getUserById(state.user.id);
-            dispatch({ type: 'SET_USER', payload: { user: freshUserData, token: state.token! } });
+            console.log('Updating user via API with ID:', userId);
+            // Update via API first
+            await apiService.updateUser(userId, data);
+
+            console.log('Fetching updated user data from API...');
+            // Get fresh user data
+            const freshUserData = await apiService.getUserById(userId);
+            console.log('Fresh user data from API:', freshUserData);
+
+            // Update both localStorage and React state
             apiService.setUser(freshUserData);
+            dispatch({ type: 'SET_USER', payload: { user: freshUserData, token: state.token! } });
+
+            // Notify other users via socket (but don't wait for the response)
             socketService.updateProfile({ displayName: freshUserData.displayName, avatar: freshUserData.avatar });
-            setTimeout(async () => {
-                try {
-                    const onlineUsers = await apiService.getOnlineUsers();
-                    const socketUsers: SocketUser[] = onlineUsers.map(u => ({
-                        id: u.id,
-                        username: u.username,
-                        displayName: u.displayName,
-                        avatar: u.avatar,
-                        status: (u.status === 'online' || u.status === 'away') ? u.status : 'online',
-                        socketId: ''
-                    }));
-                    dispatch({ type: 'SET_ONLINE_USERS', payload: socketUsers });
-                } catch (e) {}
-            }, 500);
+
+            console.log('Profile updated successfully for user:', freshUserData.displayName);
         } catch (error: any) {
+            console.error('Error updating profile:', error);
             dispatch({ type: 'SET_ERROR', payload: error.message });
             throw error;
         } finally {

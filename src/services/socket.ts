@@ -209,6 +209,22 @@ class SocketService {
         this.socket?.emit('update_profile', data);
     }
 
+    // API call for random avatar
+    async getRandomAvatar(): Promise<string> {
+        try {
+            const response = await fetch(`${SERVER_URL}/api/random-avatar`);
+            const result = await response.json();
+            if (result.success && result.data.avatarUrl) {
+                return `${SERVER_URL}${result.data.avatarUrl}`;
+            } else {
+                throw new Error(result.error || 'Failed to get random avatar');
+            }
+        } catch (error) {
+            console.error('Error getting random avatar:', error);
+            throw error;
+        }
+    }
+
     getSocket(): Socket | null {
         return this.socket;
     }
