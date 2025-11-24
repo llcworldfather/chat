@@ -178,8 +178,7 @@ function App() {
     const handleLogin = async () => { if (!username || !password) return; await login(username, password); };
     const handleRegister = async () => {
         if (!username || !password || !displayName) return;
-        const avatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random&size=128`;
-        await register({ username, displayName, password, avatar });
+        await register({ username, displayName, password });
     };
     const handleLogout = () => { logout(); setAuthMode('login'); setMobileShowChat(false); };
 
@@ -300,8 +299,8 @@ function App() {
             return {
                 userId: otherUserId, // [新增] 方便点击头像获取 ID
                 name: displayName,
-                avatar: otherUser?.avatar && !otherUser.avatar.includes('ui-avatars.com') ? null : displayName.slice(0, 2).toUpperCase(),
-                avatarUrl: otherUser?.avatar && !otherUser.avatar.includes('ui-avatars.com') ? otherUser.avatar : null,
+                avatar: otherUser?.avatar ? null : displayName.slice(0, 2).toUpperCase(),
+                avatarUrl: otherUser?.avatar || null,
                 color: 'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)',
                 isOnline: isOnline,
                 isGroup: false
@@ -519,8 +518,8 @@ function App() {
                                     info = {
                                         userId: pid, // 记录 ID 以便点击
                                         name,
-                                        avatar: otherUser?.avatar && !otherUser.avatar.includes('ui-avatars.com') ? null : name.slice(0,2).toUpperCase(),
-                                        avatarUrl: otherUser?.avatar && !otherUser.avatar.includes('ui-avatars.com') ? otherUser.avatar : null,
+                                        avatar: otherUser?.avatar ? null : name.slice(0,2).toUpperCase(),
+                                        avatarUrl: otherUser?.avatar || null,
                                         color: 'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)',
                                         online
                                     };
@@ -564,7 +563,7 @@ function App() {
                         <div style={{ padding: '16px 20px', borderTop: '1px solid rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.3)', marginTop: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => setShowProfileModal(true)}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                                 <div className="avatar" style={{ width: 48, height: 48, fontSize: 16, background: 'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)' }}>
-                                    {user.avatar && !user.avatar.includes('ui-avatars.com') ? <img src={user.avatar} alt="me" style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:14}}/> : user.displayName?.slice(0,2).toUpperCase()}
+                                    {user.avatar ? <img src={user.avatar} alt="me" style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:14}}/> : user.displayName?.slice(0,2).toUpperCase()}
                                 </div>
                                 <div><div style={{ fontWeight: 700, fontSize: 14, color: '#2d3748' }}>{user.displayName}</div><div style={{ fontSize: 11, color: '#48bb78' }}>● 在线</div></div>
                             </div>

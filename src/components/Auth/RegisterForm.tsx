@@ -69,13 +69,10 @@ export function RegisterForm({ onToggleMode }: RegisterFormProps) {
             return;
         }
 
-        const avatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(formData.displayName)}&background=random&size=128`;
-
         await register({
             username: formData.username,
             displayName: formData.displayName,
             password: formData.password,
-            avatar,
         });
     };
 
