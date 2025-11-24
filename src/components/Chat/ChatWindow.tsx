@@ -7,8 +7,6 @@ import {
     Phone,
     Video,
     Users,
-    Check,
-    CheckCheck,
     MessageCircle
 } from 'lucide-react';
 import { useChat } from '../../context/ChatContext';
@@ -24,7 +22,7 @@ export function ChatWindow() {
         typingStop,
         typingUsers,
         onlineUsers,
-        getUserInfo // [新增]
+        getUserInfo
     } = useChat();
 
     const [messageInput, setMessageInput] = useState('');
@@ -35,8 +33,9 @@ export function ChatWindow() {
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages]);
+    }, [messages, typingUsers]); // typingUsers 变化时也滚动
 
+    // 获取当前聊天的显示信息（头像、标题等）
     const getChatInfo = () => {
         if (!currentChat || !user) return null;
 
@@ -49,7 +48,6 @@ export function ChatWindow() {
             };
         } else {
             const otherParticipantId = currentChat.participants.find(id => id !== user.id);
-            // [修改] 使用 getUserInfo 获取头像
             const otherUser = otherParticipantId ? getUserInfo(otherParticipantId) : null;
 
             const displayName = otherUser ? (otherUser.displayName || otherUser.username) : '未知用户';
@@ -71,7 +69,6 @@ export function ChatWindow() {
         typingUser => typingUser.chatId === currentChat?.id && typingUser.userId !== user?.id
     );
 
-    // ... (handleInputChange, handleSendMessage, handleEmojiSelect, isOwnMessage 保持不变)
     const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         setMessageInput(e.target.value);
         if (currentChat) {
@@ -96,13 +93,15 @@ export function ChatWindow() {
             typingStop(currentChat.id);
         }
     };
-    const handleEmojiSelect = (emoji: string) => { setMessageInput(prev => prev + emoji); setShowEmojiPicker(false); inputRef.current?.focus(); };
-    const isOwnMessage = (message: any) => message.senderId === user?.id;
-    const getMessageStatus = (message: any) => {
-        if (!isOwnMessage(message)) return null;
-        if (message.readBy && message.readBy.length > 1) { return <CheckCheck className="w-4 h-4 text-blue-500" />; }
-        else { return <Check className="w-4 h-4 text-gray-400" />; }
+
+    const handleEmojiSelect = (emoji: string) => {
+        setMessageInput(prev => prev + emoji);
+        setShowEmojiPicker(false);
+        inputRef.current?.focus();
     };
+
+    const isOwnMessage = (message: any) => message.senderId === user?.id;
+
     const groupMessagesByDate = (messages: any[]) => {
         const groups: { [date: string]: any[] } = {};
         messages.forEach(message => {
@@ -112,12 +111,13 @@ export function ChatWindow() {
         });
         return groups;
     };
+
     const messageGroups = groupMessagesByDate(messages);
     const commonEmojis = ['😀', '😊', '😍', '🤣', '😭', '😡', '👍', '👎', '❤️', '💔', '🎉', '🔥', '✨', '💯', '🙏'];
 
     if (!currentChat || !chatInfo) {
         return (
-            <div className="flex-1 flex items-center justify-center bg-gray-50">
+            <div className="flex-1 flex items-center justify-center" style={{background: 'rgba(255,255,255,0.3)'}}>
                 <div className="text-center">
                     <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-100 rounded-full mb-4">
                         <MessageCircle className="w-8 h-8 text-blue-500" />
@@ -130,80 +130,186 @@ export function ChatWindow() {
     }
 
     return (
-        <div className="flex-1 flex flex-col bg-white">
-            <div className="bg-white border-b border-gray-200 px-6 py-4">
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <div className="relative">
-                            <div className="avatar">
-                                <img src={chatInfo.avatar} alt={chatInfo.name} className="w-full h-full object-cover rounded-full" onError={(e) => { const target = e.target as HTMLImageElement; target.style.display = 'none'; target.parentElement!.innerHTML = chatInfo.name.charAt(0).toUpperCase(); }} />
-                            </div>
-                            {!chatInfo.isGroup && chatInfo.isOnline && ( <div className="status-indicator status-online" /> )}
+        <div className="flex-1 flex flex-col relative">
+            {/* Header */}
+            <div className="chat-header">
+                <div className="flex items-center gap-3">
+                    <div className="relative">
+                        <div className="avatar">
+                            <img
+                                src={chatInfo.avatar}
+                                alt={chatInfo.name}
+                                className="w-full h-full object-cover rounded-full"
+                                onError={(e) => {
+                                    const target = e.target as HTMLImageElement;
+                                    target.style.display = 'none';
+                                    target.parentElement!.innerHTML = chatInfo.name.charAt(0).toUpperCase();
+                                }}
+                            />
                         </div>
-                        <div><h3 className="font-semibold text-gray-900">{chatInfo.name}</h3><p className="text-sm text-gray-600">{chatInfo.status}</p></div>
+                        {!chatInfo.isGroup && chatInfo.isOnline && ( <div className="status-indicator status-online" /> )}
                     </div>
-                    <div className="flex items-center gap-2">
-                        {!chatInfo.isGroup && (<><button className="btn-ghost tooltip" data-tooltip="语音通话"><Phone className="w-5 h-5" /></button><button className="btn-ghost tooltip" data-tooltip="视频通话"><Video className="w-5 h-5" /></button></>)}
-                        {chatInfo.isGroup && (<button className="btn-ghost tooltip" data-tooltip="群组信息"><Users className="w-5 h-5" /></button>)}
-                        <button className="btn-ghost tooltip" data-tooltip="更多选项"><MoreVertical className="w-5 h-5" /></button>
+                    <div>
+                        <h3 className="font-semibold text-gray-900">{chatInfo.name}</h3>
+                        <p className="text-sm text-gray-600">{chatInfo.status}</p>
                     </div>
+                </div>
+                <div className="flex items-center gap-2">
+                    {!chatInfo.isGroup && (
+                        <>
+                            <button className="btn-ghost tooltip" data-tooltip="语音通话"><Phone className="w-5 h-5" /></button>
+                            <button className="btn-ghost tooltip" data-tooltip="视频通话"><Video className="w-5 h-5" /></button>
+                        </>
+                    )}
+                    {chatInfo.isGroup && (<button className="btn-ghost tooltip" data-tooltip="群组信息"><Users className="w-5 h-5" /></button>)}
+                    <button className="btn-ghost tooltip" data-tooltip="更多选项"><MoreVertical className="w-5 h-5" /></button>
                 </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
+            {/* Messages Area */}
+            <div className="chat-messages" id="messageArea">
                 {Object.entries(messageGroups).map(([date, dateMessages]) => (
-                    <div key={date}>
-                        <div className="flex items-center justify-center my-4"><div className="bg-gray-200 px-3 py-1 rounded-full"><span className="text-xs text-gray-600">{date}</span></div></div>
-                        <div className="space-y-2">
-                            {dateMessages.map((message) => {
-                                const isOwn = isOwnMessage(message);
-                                const showStatus = isOwn && message.type !== 'system';
-                                // [新增] 使用 getUserInfo 获取发送者头像
-                                let senderAvatar: string | undefined;
-                                if (!isOwn) {
-                                    const sender = getUserInfo(message.senderId);
-                                    senderAvatar = sender?.avatar;
-                                }
+                    <React.Fragment key={date}>
+                        <div className="flex items-center justify-center my-2">
+                            <div className="bg-gray-200/50 px-3 py-1 rounded-full backdrop-blur-sm">
+                                <span className="text-xs text-gray-600 font-medium">{date}</span>
+                            </div>
+                        </div>
 
-                                return (
-                                    <div key={message.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'} message-enter`}>
-                                        {message.type === 'system' ? (
-                                            <div className="text-center"><span className="text-xs text-gray-500 italic bg-gray-100 px-3 py-1 rounded-full">{message.content}</span></div>
-                                        ) : (
-                                            <div className={`max-w-xs lg:max-w-md ${isOwn ? 'order-2' : 'order-1'}`}>
-                                                <div className={`px-4 py-2 rounded-2xl ${isOwn ? 'message-bubble-sent' : 'message-bubble-received'}`}>
-                                                    <p className="text-sm break-words">{message.content}</p>
-                                                </div>
-                                                <div className={`flex items-center gap-1 mt-1 px-1 ${isOwn ? 'justify-end' : 'justify-start'}`}>
-                                                    <span className="text-xs text-gray-500">{formatDateTime(new Date(message.timestamp))}</span>
-                                                    {showStatus && getMessageStatus(message)}
-                                                </div>
+                        {dateMessages.map((message) => {
+                            const isOwn = isOwnMessage(message);
+
+                            // 获取当前消息发送者的头像
+                            let senderAvatar = chatInfo.avatar; // 默认对方
+                            let senderName = chatInfo.name;
+
+                            if (isOwn) {
+                                senderAvatar = user?.avatar || '';
+                                senderName = user?.displayName || 'Me';
+                            } else if (currentChat.type === 'group') {
+                                // 群组里获取具体发送者信息
+                                const sender = getUserInfo(message.senderId);
+                                if (sender) {
+                                    senderAvatar = sender.avatar || '';
+                                    senderName = sender.displayName;
+                                }
+                            }
+
+                            return (
+                                <div key={message.id} className={`message ${isOwn ? 'sent' : ''}`}>
+                                    {message.type === 'system' ? (
+                                        <div className="w-full text-center my-2">
+                                            <span className="text-xs text-gray-500 italic bg-gray-100 px-3 py-1 rounded-full">
+                                                {message.content}
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            {/* 头像：自己和对方都显示 */}
+                                            <div className="message-avatar" title={senderName}>
+                                                <img
+                                                    src={senderAvatar}
+                                                    alt={senderName}
+                                                    onError={(e) => {
+                                                        const target = e.target as HTMLImageElement;
+                                                        target.style.display = 'none';
+                                                        target.parentElement!.innerText = senderName.charAt(0).toUpperCase();
+                                                    }}
+                                                />
                                             </div>
-                                        )}
-                                        {/* [新增] 消息旁的头像 */}
-                                        {!isOwn && message.type !== 'system' && (
-                                            <div className="avatar" style={{width:32,height:32, marginLeft: 8, order: 0, alignSelf: 'flex-end'}}>
-                                                <img src={senderAvatar || chatInfo.avatar} alt="" className="w-full h-full object-cover rounded-full" onError={(e)=>{(e.target as any).style.display='none'}}/>
+
+                                            {/* 消息内容气泡 */}
+                                            <div className="message-content">
+                                                {/* 群组中在对方消息上方显示名字 */}
+                                                {currentChat.type === 'group' && !isOwn && (
+                                                    <div className="text-xs font-bold text-gray-500 mb-1 opacity-80">
+                                                        {senderName}
+                                                    </div>
+                                                )}
+
+                                                <p style={{ wordBreak: 'break-word' }}>{message.content}</p>
+
+                                                <span className="message-time">
+                                                    {formatDateTime(new Date(message.timestamp))}
+                                                </span>
                                             </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
+                                        </>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </React.Fragment>
+                ))}
+
+                {/* 输入指示器 */}
+                {currentTypingUsers.length > 0 && (
+                    <div className="message">
+                        <div className="message-avatar">
+                            <div className="animate-pulse">...</div>
+                        </div>
+                        <div className="message-content flex items-center gap-1">
+                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0s' }} />
+                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }} />
                         </div>
                     </div>
-                ))}
-                {currentTypingUsers.length > 0 && (<div className="flex justify-start"><div className="typing-indicator"><div className="typing-dot"></div><div className="typing-dot"></div><div className="typing-dot"></div></div></div>)}
+                )}
+
                 <div ref={messagesEndRef} />
             </div>
 
-            <div className="bg-white border-t border-gray-200 p-4">
-                {showEmojiPicker && (<div className="absolute bottom-20 left-4 card p-3 shadow-lg"><div className="grid grid-cols-5 gap-2">{commonEmojis.map((emoji) => (<button key={emoji} onClick={() => handleEmojiSelect(emoji)} className="text-2xl hover:bg-gray-100 rounded p-1 transition-colors">{emoji}</button>))}</div></div>)}
-                <form onSubmit={handleSendMessage} className="flex items-end gap-2">
-                    <button type="button" className="btn-ghost tooltip" data-tooltip="发送文件"><Paperclip className="w-5 h-5" /></button>
-                    <div className="flex-1 relative"><textarea ref={inputRef} value={messageInput} onChange={handleInputChange} placeholder="输入消息..." className="input-field resize-none w-full min-h-[40px] max-h-32 py-2" rows={1} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(e); } }} /></div>
-                    <button type="button" onClick={() => setShowEmojiPicker(!showEmojiPicker)} className="btn-ghost tooltip" data-tooltip="表情"><Smile className="w-5 h-5" /></button>
-                    <button type="submit" disabled={!messageInput.trim()} className="btn-primary"><Send className="w-5 h-5" /></button>
-                </form>
+            {/* Input Area */}
+            <div className="chat-input-container">
+                {showEmojiPicker && (
+                    <div className="absolute bottom-20 left-4 bg-white/90 backdrop-blur-md p-3 rounded-2xl shadow-xl border border-gray-200 z-50">
+                        <div className="grid grid-cols-5 gap-2">
+                            {commonEmojis.map((emoji) => (
+                                <button
+                                    key={emoji}
+                                    onClick={() => handleEmojiSelect(emoji)}
+                                    className="text-2xl hover:bg-gray-100 rounded-lg p-1 transition-transform hover:scale-110"
+                                >
+                                    {emoji}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                <button type="button" className="p-2 text-gray-500 hover:text-blue-500 transition-colors">
+                    <Paperclip className="w-6 h-6" />
+                </button>
+
+                <textarea
+                    ref={inputRef}
+                    value={messageInput}
+                    onChange={handleInputChange}
+                    placeholder="说点什么..."
+                    className="chat-input flex-1 resize-none min-h-[44px] max-h-32"
+                    rows={1}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSendMessage(e);
+                        }
+                    }}
+                />
+
+                <button
+                    type="button"
+                    onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                    className="p-2 text-gray-500 hover:text-yellow-500 transition-colors"
+                >
+                    <Smile className="w-6 h-6" />
+                </button>
+
+                <button
+                    onClick={handleSendMessage}
+                    disabled={!messageInput.trim()}
+                    className="send-btn disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
+                >
+                    <Send className="w-5 h-5 ml-0.5" />
+                </button>
             </div>
         </div>
     );

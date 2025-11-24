@@ -1,9 +1,64 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, ChevronLeft, LogOut, Search, UserPlus, X, AlertCircle, Settings, Camera, Lock, User as UserIcon, Save, CheckCircle } from 'lucide-react';
+import { Send, ChevronLeft, LogOut, Search, UserPlus, X, AlertCircle, Settings, Camera, Lock, User as UserIcon, Save, CheckCircle, Paperclip, Smile } from 'lucide-react';
 import { useChat } from './context/ChatContext';
 import { socketService } from './services/socket';
-import { formatTime, formatDateTime, formatMessageDate } from './utils/timeUtils';
+import { formatMessageDate } from './utils/timeUtils';
 import './index.css';
+
+// 表情数据结构分类
+const EMOJI_CATEGORIES = [
+    {
+        id: 'smileys',
+        label: '表情',
+        list: [
+            '😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂',
+            '🙂', '🙃', '😉', '😊', '😇', '🥰', '😍', '🤩',
+            '😘', '😗', '😚', '😋', '😛', '😜', '🤪', '😝',
+            '🤑', '🤗', '🤭', '🤫', '🤔', '🤐', '😐', '😑',
+            '😶', '😏', '😒', '🙄', '😬', '🤥', '😌', '😔',
+            '😪', '🤤', '😴', '😷', '🤒', '🤕', '🤢', '🤮',
+            '🤧', '🥵', '🥶', '🥴', '😵', '🤯', '🤠', '🥳',
+            '😎', '🤓', '🧐', '😕', '😟', '🙁', '☹️', '😮'
+        ]
+    },
+    {
+        id: 'black_people',
+        label: '人物(黑)',
+        list: [
+            '👋🏿', '🤚🏿', '🖐🏿', '✋🏿', '🖖🏿', '👌🏿', '🤌🏿', '🤏🏿',
+            '✌️🏿', '🤞🏿', '🤟🏿', '🤘🏿', '🤙🏿', '👈🏿', '👉🏿', '👆🏿',
+            '👇🏿', '👍🏿', '👎🏿', '👊🏿', '✊🏿', '🤛🏿', '🤜🏿', '👏🏿',
+            '🙌🏿', '👐🏿', '🤲🏿', '🤝🏿', '🙏🏿', '💅🏿', '🤳🏿', '💪🏿',
+            '👦🏿', '👧🏿', '👨🏿', '👩🏿', '👴🏿', '👵🏿', '👶🏿', '👮🏿',
+            '🕵️🏿', '💂🏿', '👷🏿', '🤴🏿', '👸🏿', '👳🏿', '👲🏿', '🧕🏿',
+            '🤵🏿', '👰🏿', '🤰🏿', '🤱🏿', '👼🏿', '🎅🏿', '🧙🏿', '🧚🏿',
+            '🧛🏿', '🧜🏿', '🧝🏿', '💆🏿', '💇🏿', '🚶🏿', '🏃🏿', '💃🏿',
+            '🕺🏿', '🧖🏿', '🧘🏿', '🛀🏿', '🛌🏿', '🕴🏿', '🗣🏿', '👤🏿'
+        ]
+    },
+    {
+        id: 'gestures',
+        label: '手势',
+        list: [
+            '👋', '🤚', '🖐', '✋', '🖖', '👌', '🤌', '🤏',
+            '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉', '👆',
+            '👇', '👍', '👎', '👊', '✊', '🤛', '🤜', '👏',
+            '🙌', '👐', '🤲', '🤝', '🙏', '✍️', '💅', '🤳',
+            '💪', '🦵', '🦶', '👂', '🦻', '👃', '🧠', '🫀'
+        ]
+    },
+    {
+        id: 'hearts',
+        label: '心情',
+        list: [
+            '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍',
+            '🤎', '💔', '❣️', '💕', '💞', '💓', '💗', '💖',
+            '💘', '💝', '💟', '☮️', '✝️', '☪️', '🕉️', '☸️',
+            '🎉', '✨', '🔥', '💯', '💢', '💥', '💫', '💦',
+            '💤', '🕳️', '💣', '💬', '👁️‍🗨️', '🗨️', '🗯️', '💭'
+        ]
+    }
+];
 
 function App() {
     const {
@@ -23,7 +78,7 @@ function App() {
         loading,
         error,
         getUserInfo,
-        clearError // [新增] 获取 clearError
+        clearError
     } = useChat();
 
     const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
@@ -42,16 +97,39 @@ function App() {
     const [modalError, setModalError] = useState('');
     const [modalSuccess, setModalSuccess] = useState('');
 
+    const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+    const [activeEmojiCategory, setActiveEmojiCategory] = useState('smileys');
+
     const [username, setUsername] = useState('');
     const [displayName, setDisplayName] = useState('');
     const [password, setPassword] = useState('');
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
 
-    useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, currentChat]);
+    const emojiPickerRef = useRef<HTMLDivElement>(null);
+    const emojiBtnRef = useRef<HTMLButtonElement>(null);
 
-    // Error handling Effect
+    useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, currentChat, typingUsers]);
+
+    useEffect(() => {
+        function handleClickOutside(event: MouseEvent) {
+            if (showEmojiPicker &&
+                emojiPickerRef.current &&
+                !emojiPickerRef.current.contains(event.target as Node) &&
+                emojiBtnRef.current &&
+                !emojiBtnRef.current.contains(event.target as Node)) {
+                setShowEmojiPicker(false);
+            }
+        }
+
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+        };
+    }, [showEmojiPicker]);
+
     useEffect(() => {
         if (showAddModal && error) {
             let errorMsg = '';
@@ -70,7 +148,6 @@ function App() {
         }
     }, [error, showAddModal]);
 
-    // [新增] 切换 Mode 时清除错误
     const switchAuthMode = (mode: 'login' | 'register') => {
         setAuthMode(mode);
         clearError();
@@ -158,7 +235,6 @@ function App() {
             setProfileForm(prev => ({ ...prev, avatar: avatarUrl }));
         } catch (error) {
             console.error('Failed to get random avatar:', error);
-            // Fallback to the original UI avatars if random avatars fail
             const url = `https://ui-avatars.com/api/?name=${encodeURIComponent(profileForm.displayName || user?.username || '')}&background=random&size=128`;
             setProfileForm(prev => ({ ...prev, avatar: url }));
         }
@@ -199,6 +275,12 @@ function App() {
         if (!inputText.trim() || !currentChat) return;
         sendMessage(currentChat.id, inputText);
         setInputText('');
+        setShowEmojiPicker(false);
+    };
+
+    const handleEmojiSelect = (emoji: string) => {
+        setInputText(prev => prev + emoji);
+        inputRef.current?.focus();
     };
 
     const getCurrentChatInfo = () => {
@@ -230,7 +312,20 @@ function App() {
     const currentChatInfo = getCurrentChatInfo();
     const isOwnMessage = (message: any) => message.senderId === user?.id;
 
-    const commonEmojis = ['😀', '😊', '😍', '🤣', '😭', '😡', '👍', '👎', '❤️', '💔', '🎉', '🔥', '✨', '💯', '🙏'];
+    const formatTimeShort = (date: Date) => {
+        return new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    };
+
+    const groupMessagesByDate = (messages: any[]) => {
+        const groups: { [date: string]: any[] } = {};
+        messages.forEach(message => {
+            const date = formatMessageDate(new Date(message.timestamp));
+            if (!groups[date]) { groups[date] = []; }
+            groups[date].push(message);
+        });
+        return groups;
+    };
+    const messageGroups = groupMessagesByDate(messages);
 
     if (!user) {
         return (
@@ -246,7 +341,6 @@ function App() {
                                 <>
                                     <div className="input-group">
                                         <label>用户名</label>
-                                        {/* [修改] 输入时清除错误 */}
                                         <input className="input-field" value={displayName} onChange={e=>{setDisplayName(e.target.value); if(error) clearError();}} disabled={loading} placeholder="想要我们怎么称呼您"/>
                                     </div>
                                     <div className="input-group">
@@ -268,7 +362,6 @@ function App() {
                             <button className="primary-btn" onClick={authMode==='login'?handleLogin:handleRegister} disabled={loading}>{loading?'处理中...':(authMode==='login'?'立即登录':'注册并登录')}</button>
                             <p className="switch-text">
                                 {authMode==='login'?'还没有账户？':'已有账户？'}
-                                {/* [修改] 切换模式时清除错误 */}
                                 <span className="switch-link" onClick={()=>switchAuthMode(authMode==='login'?'register':'login')}>
                                     {authMode==='login'?'立即注册':'立即登录'}
                                 </span>
@@ -280,16 +373,9 @@ function App() {
         );
     }
 
-    const groupMessagesByDate = (messages: any[]) => {
-        const groups: { [date: string]: any[] } = {};
-        messages.forEach(message => {
-            const date = formatMessageDate(new Date(message.timestamp));
-            if (!groups[date]) { groups[date] = []; }
-            groups[date].push(message);
-        });
-        return groups;
-    };
-    const messageGroups = groupMessagesByDate(messages);
+    const currentTypingUsers = typingUsers.filter(
+        typingUser => typingUser.chatId === currentChat?.id && typingUser.userId !== user?.id
+    );
 
     return (
         <div className="app-wrapper">
@@ -417,55 +503,155 @@ function App() {
                                         <div style={{fontSize:12,color:currentChatInfo?.isOnline?'#48bb78':'#a0aec0'}}>{currentChatInfo?.isOnline?'在线':'离线'}</div>
                                     </div>
                                 </div>
-                                <div className="messages-box">
-                                    {Object.entries(messageGroups).map(([date, dateMessages]) => (
-                                        <div key={date}>
-                                            <div className="flex items-center justify-center my-4"><div className="bg-gray-200 px-3 py-1 rounded-full"><span className="text-xs text-gray-600">{date}</span></div></div>
-                                            <div className="space-y-2">
-                                                {dateMessages.map((message) => {
-                                                    const isOwn = isOwnMessage(message);
-                                                    let senderAvatar: string | undefined;
-                                                    if (!isOwn) {
-                                                        const sender = getUserInfo(message.senderId);
-                                                        senderAvatar = sender?.avatar || undefined;
-                                                    }
-                                                    const displayAvatar = senderAvatar || (currentChatInfo?.avatarUrl || undefined);
 
-                                                    return (
-                                                        <div key={message.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'} message-enter`}>
-                                                            {message.type === 'system' ? (
-                                                                <div className="text-center"><span className="text-xs text-gray-500 italic bg-gray-100 px-3 py-1 rounded-full">{message.content}</span></div>
-                                                            ) : (
-                                                                <>
-                                                                    {!isOwn && (
-                                                                        <div className="avatar" style={{width:32,height:32, marginRight: 8, order: 0, alignSelf: 'flex-end', flexShrink: 0}}>
-                                                                            <img src={displayAvatar} alt="" style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:'inherit'}} onError={(e)=>{(e.target as any).style.display='none'}}/>
-                                                                        </div>
+                                <div className="chat-messages" id="messageArea">
+                                    {Object.entries(messageGroups).map(([date, dateMessages]) => (
+                                        <React.Fragment key={date}>
+                                            <div className="date-separator-container">
+                                                <div className="date-separator">
+                                                    {date}
+                                                </div>
+                                            </div>
+                                            {dateMessages.map((message) => {
+                                                const isOwn = isOwnMessage(message);
+                                                let senderAvatar: string | undefined;
+                                                let senderName = currentChatInfo?.name || 'Unknown';
+
+                                                if (isOwn) {
+                                                    senderAvatar = user?.avatar || undefined;
+                                                    senderName = user?.displayName || 'Me';
+                                                } else if (currentChat.type === 'group') {
+                                                    const sender = getUserInfo(message.senderId);
+                                                    if (sender) {
+                                                        senderAvatar = sender.avatar || undefined;
+                                                        senderName = sender.displayName;
+                                                    }
+                                                } else {
+                                                    senderAvatar = currentChatInfo?.avatarUrl || undefined;
+                                                    senderName = currentChatInfo?.name || 'User';
+                                                }
+
+                                                const displayAvatar = senderAvatar;
+
+                                                return (
+                                                    <div key={message.id} className={`message ${isOwn ? 'sent' : ''}`}>
+                                                        {message.type === 'system' ? (
+                                                            <div className="w-full text-center">
+                                                                <span className="text-xs text-gray-500 italic bg-gray-100 px-3 py-1 rounded-full">{message.content}</span>
+                                                            </div>
+                                                        ) : (
+                                                            <>
+                                                                <div className="message-avatar" title={senderName}>
+                                                                    {displayAvatar ? (
+                                                                        <img src={displayAvatar} alt={senderName} onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }} />
+                                                                    ) : (
+                                                                        senderName.charAt(0).toUpperCase()
                                                                     )}
-                                                                    <div className={`max-w-xs lg:max-w-md ${isOwn ? 'order-2' : 'order-1'}`}>
-                                                                        <div className={`px-4 py-2 rounded-2xl ${isOwn ? 'message-bubble-sent' : 'message-bubble-received'}`}>
-                                                                            <p className="text-sm break-words">{message.content}</p>
-                                                                        </div>
-                                                                        <div className={`flex items-center gap-1 mt-1 px-1 ${isOwn ? 'justify-end' : 'justify-start'}`}>
-                                                                            <span className="text-xs text-gray-500">{formatDateTime(new Date(message.timestamp))}</span>
-                                                                        </div>
-                                                                    </div>
-                                                                </>
-                                                            )}
-                                                        </div>
-                                                    );
-                                                })}
+                                                                </div>
+                                                                <div className="message-content">
+                                                                    {currentChat.type === 'group' && !isOwn && (
+                                                                        <div className="message-sender-name">{senderName}</div>
+                                                                    )}
+                                                                    <p style={{ margin: 0 }}>{message.content}</p>
+                                                                    <span className="message-time">{formatTimeShort(new Date(message.timestamp))}</span>
+                                                                </div>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </React.Fragment>
+                                    ))}
+
+                                    {currentTypingUsers.length > 0 && (
+                                        <div className="message">
+                                            <div className="message-avatar">...</div>
+                                            <div className="message-content" style={{display: 'flex', alignItems: 'center', gap: 4, minHeight: 40}}>
+                                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0s' }} />
+                                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+                                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }} />
                                             </div>
                                         </div>
-                                    ))}
+                                    )}
+
                                     <div ref={messagesEndRef}/>
                                 </div>
-                                <div className="input-area">
-                                    <input className="chat-input" placeholder="说点什么..." value={inputText} onChange={e=>setInputText(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSendMessage()}/>
-                                    <button className="send-btn" onClick={handleSendMessage}><Send size={20}/></button>
+
+                                <div className="chat-input-container">
+                                    {showEmojiPicker && (
+                                        <div style={{
+                                            position: 'absolute',
+                                            bottom: 80,
+                                            left: 20,
+                                            background: 'rgba(255,255,255,0.9)',
+                                            backdropFilter: 'blur(10px)',
+                                            padding: 10,
+                                            borderRadius: 16,
+                                            boxShadow: '0 4px 15px rgba(0,0,0,0.1)',
+                                            zIndex: 50,
+                                            width: '450px' /* [修改] 增加宽度至450px */
+                                        }} ref={emojiPickerRef}>
+                                            {/* 分类 Tab 栏 */}
+                                            <div style={{ display: 'flex', gap: 8, marginBottom: 10, overflowX: 'auto', paddingBottom: 5 }} className="scrollbar-hide">
+                                                {EMOJI_CATEGORIES.map(cat => (
+                                                    <button
+                                                        key={cat.id}
+                                                        onClick={() => setActiveEmojiCategory(cat.id)}
+                                                        style={{
+                                                            padding: '4px 12px',
+                                                            borderRadius: '20px',
+                                                            fontSize: '13px',
+                                                            fontWeight: 600,
+                                                            border: 'none',
+                                                            cursor: 'pointer',
+                                                            backgroundColor: activeEmojiCategory === cat.id ? '#34d399' : '#f3f4f6',
+                                                            color: activeEmojiCategory === cat.id ? 'white' : '#4b5563',
+                                                            whiteSpace: 'nowrap',
+                                                            transition: 'all 0.2s'
+                                                        }}
+                                                    >
+                                                        {cat.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+
+                                            {/* 表情网格 */}
+                                            <div style={{
+                                                display: 'grid',
+                                                gridTemplateColumns: 'repeat(8, 1fr)', /* 8列布局 */
+                                                gap: 6,
+                                                maxHeight: '200px',
+                                                overflowY: 'auto'
+                                            }}>
+                                                {EMOJI_CATEGORIES.find(c => c.id === activeEmojiCategory)?.list.map((emoji, index) => (
+                                                    <button
+                                                        key={index}
+                                                        onClick={() => handleEmojiSelect(emoji)}
+                                                        style={{
+                                                            fontSize: 22,
+                                                            background: 'transparent',
+                                                            border: 'none',
+                                                            cursor: 'pointer',
+                                                            padding: 4,
+                                                            borderRadius: 6,
+                                                            transition: '0.2s'
+                                                        }}
+                                                        className="hover:bg-gray-100"
+                                                    >
+                                                        {emoji}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* [修改] 已移除文件发送按钮 (Paperclip) */}
+                                    <input ref={inputRef} className="chat-input" placeholder="说点什么..." value={inputText} onChange={e=>setInputText(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSendMessage()}/>
+                                    <button className="icon-btn" onClick={() => setShowEmojiPicker(!showEmojiPicker)} ref={emojiBtnRef}><Smile size={20}/></button>
+                                    <button className="send-btn" onClick={handleSendMessage} disabled={!inputText.trim()}><Send size={20}/></button>
                                 </div>
                             </>
-                        ) : (<div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100%',color:'#a0aec0'}}>选择一个聊天开始对话</div>)}
+                        ) : (<div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100%',color:'#a0aec0',flexDirection:'column',gap:10}}><img src="/logo192.png" width="64" style={{opacity:0.5}} alt=""/><p>选择一个聊天开始对话</p></div>)}
                     </div>
                 </div>
             </div>

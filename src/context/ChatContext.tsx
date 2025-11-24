@@ -84,10 +84,9 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         case 'SET_LOADING': return { ...state, loading: action.payload };
         case 'SET_ERROR': return { ...state, error: action.payload, loading: false };
         case 'SET_USER':
-            // Validate user object before setting
             if (!action.payload.user || !action.payload.user.id) {
                 console.error('SET_USER: Invalid user object received:', action.payload.user);
-                return state; // Don't update state with invalid user
+                return state;
             }
             console.log('SET_USER: Setting user with ID:', action.payload.user.id, 'User:', action.payload.user);
             return { ...state, user: action.payload.user, token: action.payload.token, loading: false, error: null };
@@ -111,6 +110,12 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         case 'SET_MESSAGES': return { ...state, messages: action.payload };
         case 'ADD_MESSAGE': {
             const newMessage = action.payload;
+
+            // [修改] 增加去重逻辑
+            if (state.messages.some(msg => msg.id === newMessage.id)) {
+                return state;
+            }
+
             const userId = state.user?.id;
             const isCurrentChat = state.currentChat?.id === newMessage.chatId;
             const targetChatIndex = state.chats.findIndex(c => c.id === newMessage.chatId);
@@ -205,7 +210,6 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
     }
 }
 
-// 扩展类型定义以包含 getUserInfo
 export interface ChatContextTypeExtended extends ChatContextType {
     userCache: Map<string, User>;
     getUserInfo: (userId: string) => User | SocketUser | undefined;
@@ -220,7 +224,6 @@ export function ChatProvider({ children }: ChatProviderProps) {
     const fetchingIds = useRef<Set<string>>(new Set());
 
     const getUserInfo = (userId: string) => {
-        // Debug logging for troubleshooting
         if (process.env.NODE_ENV === 'development') {
             console.log(`getUserInfo called for userId: ${userId}`);
             console.log('Current user:', state.user);
@@ -249,7 +252,6 @@ export function ChatProvider({ children }: ChatProviderProps) {
         return cachedUser;
     };
 
-    // [新增] 清除错误的方法
     const clearError = () => {
         dispatch({ type: 'SET_ERROR', payload: null });
     };
@@ -366,12 +368,8 @@ export function ChatProvider({ children }: ChatProviderProps) {
         socketService.onUserProfileUpdated((updatedUser) => {
             console.log('Received user_profile_updated event:', updatedUser);
 
-            // Only update online users list, don't update current user state here
-            // to avoid conflicts with local updates
             dispatch({ type: 'UPDATE_ONLINE_USER', payload: updatedUser });
 
-            // Only cache user data if it's NOT the current user
-            // Current user state is managed by updateUserProfile function
             if (updatedUser.id !== state.user?.id) {
                 const userToCache: User = {
                     id: updatedUser.id,
@@ -402,7 +400,6 @@ export function ChatProvider({ children }: ChatProviderProps) {
             console.log('Cached user:', cachedUser);
 
             if (token && cachedUser) {
-                // Validate cached user before using
                 if (!cachedUser.id) {
                     console.error('Cached user has no ID, clearing cache and forcing logout');
                     apiService.removeUser();
@@ -414,7 +411,6 @@ export function ChatProvider({ children }: ChatProviderProps) {
                     const freshUserData = await apiService.getUserById(cachedUser.id);
                     console.log('Fresh user data from server:', freshUserData);
 
-                    // Validate fresh user data
                     if (!freshUserData || !freshUserData.id) {
                         console.error('Invalid fresh user data received, using cached user');
                         dispatch({ type: 'SET_USER', payload: { user: cachedUser, token } });
@@ -491,7 +487,6 @@ export function ChatProvider({ children }: ChatProviderProps) {
             } catch (e) {}
         } catch (error: any) {
             let msg = error instanceof Error ? error.message : 'Registration failed';
-            // [修改] 增加对账号已存在的特定中文提示
             if (msg.includes('409') || msg.toLowerCase().includes('already exists') || msg.toLowerCase().includes('duplicate')) {
                 msg = '该账号已经被注册，换个账号吧';
             }
@@ -560,14 +555,12 @@ export function ChatProvider({ children }: ChatProviderProps) {
     const updateUserProfile = async (data: { displayName?: string; avatar?: string; password?: string; email?: string }) => {
         console.log('=== UPDATE PROFILE START ===');
 
-        // Get fresh user from localStorage to avoid state corruption issues
         const freshUser = apiService.getUser();
         console.log('Fresh user from localStorage:', freshUser);
 
         if (!freshUser || !freshUser.id) {
             console.error('ERROR: No valid user found in localStorage!');
             dispatch({ type: 'SET_ERROR', payload: 'User session corrupted. Please log in again.' });
-            // Clear corrupted data
             apiService.removeUser();
             localStorage.removeItem('token');
             return;
@@ -581,19 +574,15 @@ export function ChatProvider({ children }: ChatProviderProps) {
         dispatch({ type: 'SET_LOADING', payload: true });
         try {
             console.log('Updating user via API with ID:', userId);
-            // Update via API first
             await apiService.updateUser(userId, data);
 
             console.log('Fetching updated user data from API...');
-            // Get fresh user data
             const freshUserData = await apiService.getUserById(userId);
             console.log('Fresh user data from API:', freshUserData);
 
-            // Update both localStorage and React state
             apiService.setUser(freshUserData);
             dispatch({ type: 'SET_USER', payload: { user: freshUserData, token: state.token! } });
 
-            // Notify other users via socket (but don't wait for the response)
             socketService.updateProfile({ displayName: freshUserData.displayName, avatar: freshUserData.avatar });
 
             console.log('Profile updated successfully for user:', freshUserData.displayName);
@@ -612,7 +601,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         createGroup, getPrivateChat, leaveGroup, typingStart, typingStop,
         addFriend, updateUserProfile,
         getUserInfo,
-        clearError // [新增]
+        clearError
     };
 
     return <ChatContext.Provider value={contextValue}>{children}</ChatContext.Provider>;
