@@ -371,7 +371,7 @@ body {
     overflow-x: hidden;
     display: flex;
     flex-direction: column;
-    gap: 12px; /* 消息间距 */
+    gap: 25px; /* 消息间距 */
     scroll-behavior: smooth;
 }
 
@@ -380,9 +380,7 @@ body {
     display: flex;
     justify-content: center;
     margin: 24px 0 12px;
-    position: relative; /* 关键修改：不再吸附 */
-    /* top: 0; 移除 */
-    /* z-index: 2; 移除 */
+    position: relative;
     pointer-events: none;
 }
 
@@ -422,22 +420,28 @@ body {
     flex-direction: row-reverse;
 }
 
-/* 消息头像 */
+/* 消息头像 - [保持大尺寸] */
 .message-avatar {
-    width: 34px;
-    height: 34px;
-    border-radius: 12px;
+    width: 48px;
+    height: 48px;
+    border-radius: 18px;
     background: linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%);
     display: flex;
     align-items: center;
     justify-content: center;
     color: white;
     font-weight: 600;
-    font-size: 12px;
+    font-size: 20px;
     flex-shrink: 0;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    box-shadow: 0 3px 8px rgba(0,0,0,0.15);
     overflow: hidden;
     margin-top: auto; /* 头像底部对齐 */
+    cursor: pointer; /* [新增] 提示可点击 */
+    transition: transform 0.2s ease;
+}
+
+.message-avatar:hover {
+    transform: scale(1.05);
 }
 
 .message-avatar img {
@@ -649,4 +653,32 @@ body {
 .icon-btn.danger:hover {
     color: #ff6b6b;
     background: rgba(255, 107, 107, 0.1);
+}
+
+/* [新增] 头像预览蒙层样式 */
+.avatar-preview-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    z-index: 300;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.3s ease;
+    backdrop-filter: blur(5px);
+    cursor: zoom-out;
+}
+
+.avatar-preview-img {
+    max-width: 90vw;
+    max-height: 90vh;
+    border-radius: 12px;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+    cursor: default;
+    animation: zoomIn 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes zoomIn {
+    from { opacity: 0; transform: scale(0.9); }
+    to { opacity: 1; transform: scale(1); }
 }

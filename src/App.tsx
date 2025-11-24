@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, ChevronLeft, LogOut, Search, UserPlus, X, AlertCircle, Settings, Camera, Lock, User as UserIcon, Save, CheckCircle, Paperclip, Smile } from 'lucide-react';
+import { Send, ChevronLeft, LogOut, Search, UserPlus, X, AlertCircle, Settings, Camera, Lock, User as UserIcon, Save, CheckCircle, Paperclip, Smile, MessageSquare } from 'lucide-react';
 import { useChat } from './context/ChatContext';
 import { socketService } from './services/socket';
 import { formatMessageDate } from './utils/timeUtils';
@@ -87,7 +87,7 @@ function App() {
     const [searchQuery, setSearchQuery] = useState('');
     const [showAddModal, setShowAddModal] = useState(false);
     const [newContactName, setNewContactName] = useState('');
-    const [showProfileModal, setShowProfileModal] = useState(false);
+    const [showProfileModal, setShowProfileModal] = useState(false); // 编辑自己资料
     const [profileForm, setProfileForm] = useState({
         displayName: '',
         password: '',
@@ -104,6 +104,10 @@ function App() {
     const [displayName, setDisplayName] = useState('');
     const [password, setPassword] = useState('');
 
+    // [新增] 查看用户详情 & 头像预览 状态
+    const [viewingUser, setViewingUser] = useState<any>(null);
+    const [previewImage, setPreviewImage] = useState<string | null>(null);
+
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -113,6 +117,7 @@ function App() {
 
     useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, currentChat, typingUsers]);
 
+    // 监听全局点击事件，点击外部关闭表情面板
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
             if (showEmojiPicker &&
@@ -130,6 +135,7 @@ function App() {
         };
     }, [showEmojiPicker]);
 
+    // Error handling Effect
     useEffect(() => {
         if (showAddModal && error) {
             let errorMsg = '';
@@ -292,6 +298,7 @@ function App() {
             const isOnline = onlineUsers.some(u => u.id === otherUserId);
 
             return {
+                userId: otherUserId, // [新增] 方便点击头像获取 ID
                 name: displayName,
                 avatar: otherUser?.avatar && !otherUser.avatar.includes('ui-avatars.com') ? null : displayName.slice(0, 2).toUpperCase(),
                 avatarUrl: otherUser?.avatar && !otherUser.avatar.includes('ui-avatars.com') ? otherUser.avatar : null,
@@ -301,6 +308,7 @@ function App() {
             };
         }
         return {
+            userId: null,
             name: currentChat.name || 'Group',
             avatar: (currentChat.name || 'G').slice(0,2).toUpperCase(),
             avatarUrl: null,
@@ -326,6 +334,19 @@ function App() {
         return groups;
     };
     const messageGroups = groupMessagesByDate(messages);
+
+    // [新增] 处理查看用户详情
+    const handleViewUser = (userId: string) => {
+        if (!userId) return;
+        if (userId === user?.id) {
+            setShowProfileModal(true); // 看自己 -> 编辑资料
+        } else {
+            const u = getUserInfo(userId);
+            if (u) {
+                setViewingUser(u); // 看别人 -> 用户详情
+            }
+        }
+    };
 
     if (!user) {
         return (
@@ -380,6 +401,9 @@ function App() {
     return (
         <div className="app-wrapper">
             <div className="glass-container">
+                {/* --- 模态框区域 --- */}
+
+                {/* 1. 添加好友 Modal */}
                 {showAddModal && (
                     <div className="modal-overlay">
                         <div className="modal-content" style={{ paddingBottom: 30 }}>
@@ -395,6 +419,8 @@ function App() {
                         </div>
                     </div>
                 )}
+
+                {/* 2. 编辑自己资料 Modal */}
                 {showProfileModal && (
                     <div className="modal-overlay">
                         <div className="modal-content" style={{ width: 420 }}>
@@ -422,6 +448,55 @@ function App() {
                     </div>
                 )}
 
+                {/* 3. [新增] 查看好友详情 Modal */}
+                {viewingUser && (
+                    <div className="modal-overlay">
+                        <div className="modal-content" style={{ width: 380, paddingBottom: 30 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                                <h3 style={{ fontSize: 22, fontWeight: 800, color: '#2d3748', margin: 0 }}>好友资料</h3>
+                                <button className="icon-btn" onClick={() => setViewingUser(null)}><X size={20} /></button>
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 15 }}>
+                                <div
+                                    style={{ width: 100, height: 100, borderRadius: 30, overflow: 'hidden', cursor: 'pointer', boxShadow: '0 8px 20px rgba(0,0,0,0.1)' }}
+                                    onClick={() => viewingUser.avatar && setPreviewImage(viewingUser.avatar)}
+                                    title="点击查看大图"
+                                >
+                                    {viewingUser.avatar ? (
+                                        <img src={viewingUser.avatar} alt={viewingUser.displayName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    ) : (
+                                        <div style={{ width: '100%', height: '100%', background: 'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 36, color: 'white', fontWeight: 'bold' }}>
+                                            {viewingUser.displayName?.slice(0, 2).toUpperCase()}
+                                        </div>
+                                    )}
+                                </div>
+                                <div style={{ textAlign: 'center' }}>
+                                    <h2 style={{ fontSize: 24, fontWeight: 700, color: '#2d3748', margin: 0 }}>{viewingUser.displayName}</h2>
+                                    <p style={{ color: '#718096', marginTop: 5, fontSize: 14 }}>@{viewingUser.username}</p>
+                                </div>
+
+                                {/* 如果是私聊界面，且不是自己，显示发消息按钮（虽然已经在聊天了，但逻辑完整） */}
+                                {/* <button className="primary-btn" onClick={() => { setViewingUser(null); }} style={{ width: '80%', marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                                    <MessageSquare size={18}/> 发消息
+                                </button> */}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* 4. [新增] 头像大图预览 Modal */}
+                {previewImage && (
+                    <div className="avatar-preview-overlay" onClick={() => setPreviewImage(null)}>
+                        <img src={previewImage} alt="Full Preview" className="avatar-preview-img" onClick={(e) => e.stopPropagation()} />
+                        <button
+                            style={{ position: 'absolute', top: 20, right: 20, background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '50%', padding: 10, cursor: 'pointer', color: 'white' }}
+                            onClick={() => setPreviewImage(null)}
+                        >
+                            <X size={24} />
+                        </button>
+                    </div>
+                )}
+
                 <div className="window-controls"><div className="window-dot close"></div><div className="window-dot minimize"></div><div className="window-dot maximize"></div></div>
 
                 <div className="chat-layout">
@@ -442,6 +517,7 @@ function App() {
                                     const online = onlineUsers.some(u => u.id === pid);
 
                                     info = {
+                                        userId: pid, // 记录 ID 以便点击
                                         name,
                                         avatar: otherUser?.avatar && !otherUser.avatar.includes('ui-avatars.com') ? null : name.slice(0,2).toUpperCase(),
                                         avatarUrl: otherUser?.avatar && !otherUser.avatar.includes('ui-avatars.com') ? otherUser.avatar : null,
@@ -453,8 +529,17 @@ function App() {
                                 }
 
                                 return (
-                                    <div key={chat.id} className={`contact-item ${currentChat?.id===chat.id?'active':''}`} onClick={()=>{setCurrentChat(chat);setMobileShowChat(true)}}>
-                                        <div className="relative-avatar-container">
+                                    <div key={chat.id} className={`contact-item ${currentChat?.id===chat.id?'active':''}`}
+                                         onClick={(e)=>{
+                                             setCurrentChat(chat);
+                                             setMobileShowChat(true);
+                                         }}
+                                    >
+                                        <div className="relative-avatar-container" onClick={(e) => {
+                                            // [修改] 点击侧边栏头像 -> 查看用户资料
+                                            e.stopPropagation();
+                                            if(info.userId) handleViewUser(info.userId);
+                                        }}>
                                             <div className="avatar" style={{ background: info.color }}>
                                                 {info.avatarUrl ? (<img src={info.avatarUrl} alt={info.name} style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:'inherit'}}/>) : (info.avatar)}
                                             </div>
@@ -492,14 +577,22 @@ function App() {
                             <>
                                 <div className="chat-header">
                                     <button className="mobile-back" onClick={()=>setMobileShowChat(false)}><ChevronLeft/></button>
-                                    <div className="relative-avatar-container">
+                                    <div className="relative-avatar-container"
+                                         onClick={() => {
+                                             // [修改] 点击顶部头像 -> 查看用户资料
+                                             if (currentChatInfo?.userId) handleViewUser(currentChatInfo.userId);
+                                         }}
+                                         style={{ cursor: 'pointer' }}
+                                    >
                                         <div className="avatar" style={{width:52,height:52,fontSize:18,background:currentChatInfo?.color}}>
                                             {currentChatInfo?.avatarUrl ? (<img src={currentChatInfo.avatarUrl} alt={currentChatInfo.name} style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:'inherit'}}/>) : (currentChatInfo?.avatar)}
                                         </div>
                                         {!currentChatInfo?.isGroup && currentChatInfo?.isOnline && ( <div className="status-indicator status-online" /> )}
                                     </div>
                                     <div>
-                                        <h3 style={{fontSize:16,fontWeight:700,color:'#2d3748'}}>{currentChatInfo?.name}</h3>
+                                        <h3 style={{fontSize:16,fontWeight:700,color:'#2d3748', cursor: 'pointer'}} onClick={() => {
+                                            if (currentChatInfo?.userId) handleViewUser(currentChatInfo.userId);
+                                        }}>{currentChatInfo?.name}</h3>
                                         <div style={{fontSize:12,color:currentChatInfo?.isOnline?'#48bb78':'#a0aec0'}}>{currentChatInfo?.isOnline?'在线':'离线'}</div>
                                     </div>
                                 </div>
@@ -541,7 +634,8 @@ function App() {
                                                             </div>
                                                         ) : (
                                                             <>
-                                                                <div className="message-avatar" title={senderName}>
+                                                                {/* [修改] 点击消息头像 -> 查看用户资料 */}
+                                                                <div className="message-avatar" title={senderName} onClick={() => handleViewUser(message.senderId)}>
                                                                     {displayAvatar ? (
                                                                         <img src={displayAvatar} alt={senderName} onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }} />
                                                                     ) : (
@@ -589,9 +683,8 @@ function App() {
                                             borderRadius: 16,
                                             boxShadow: '0 4px 15px rgba(0,0,0,0.1)',
                                             zIndex: 50,
-                                            width: '450px' /* [修改] 增加宽度至450px */
+                                            width: '450px'
                                         }} ref={emojiPickerRef}>
-                                            {/* 分类 Tab 栏 */}
                                             <div style={{ display: 'flex', gap: 8, marginBottom: 10, overflowX: 'auto', paddingBottom: 5 }} className="scrollbar-hide">
                                                 {EMOJI_CATEGORIES.map(cat => (
                                                     <button
@@ -615,10 +708,9 @@ function App() {
                                                 ))}
                                             </div>
 
-                                            {/* 表情网格 */}
                                             <div style={{
                                                 display: 'grid',
-                                                gridTemplateColumns: 'repeat(8, 1fr)', /* 8列布局 */
+                                                gridTemplateColumns: 'repeat(8, 1fr)',
                                                 gap: 6,
                                                 maxHeight: '200px',
                                                 overflowY: 'auto'
@@ -644,8 +736,6 @@ function App() {
                                             </div>
                                         </div>
                                     )}
-
-                                    {/* [修改] 已移除文件发送按钮 (Paperclip) */}
                                     <input ref={inputRef} className="chat-input" placeholder="说点什么..." value={inputText} onChange={e=>setInputText(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSendMessage()}/>
                                     <button className="icon-btn" onClick={() => setShowEmojiPicker(!showEmojiPicker)} ref={emojiBtnRef}><Smile size={20}/></button>
                                     <button className="send-btn" onClick={handleSendMessage} disabled={!inputText.trim()}><Send size={20}/></button>
