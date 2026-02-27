@@ -19,6 +19,7 @@ export interface Message {
     readBy: string[];
     isEdited: boolean;
     editedAt?: Date;
+    isStreaming?: boolean;   // true while the AI is still writing
 }
 
 export interface Chat {

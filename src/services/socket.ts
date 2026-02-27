@@ -150,6 +150,19 @@ class SocketService {
         this.socket?.on('user_profile_updated', callback);
     }
 
+    // AI streaming events
+    onAiStreamStart(callback: (data: { message: Message }) => void): void {
+        this.socket?.on('ai_stream_start', callback);
+    }
+
+    onAiStreamChunk(callback: (data: { messageId: string; chatId: string; chunk: string }) => void): void {
+        this.socket?.on('ai_stream_chunk', callback);
+    }
+
+    onAiStreamEnd(callback: (data: { message: Message }) => void): void {
+        this.socket?.on('ai_stream_end', callback);
+    }
+
     // Remove event listeners
     off(event: string, callback?: Function): void {
         if (callback) {

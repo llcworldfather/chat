@@ -47,7 +47,10 @@ type ChatAction =
     | { type: 'USER_LEFT_GROUP'; payload: { chatId: string; userId: string } }
     | { type: 'REMOVE_CHAT'; payload: string }
     | { type: 'CLEAR_CURRENT_CHAT_UNREAD' }
-    | { type: 'CACHE_USERS'; payload: User[] };
+    | { type: 'CACHE_USERS'; payload: User[] }
+    | { type: 'AI_STREAM_START'; payload: Message }
+    | { type: 'AI_STREAM_CHUNK'; payload: { messageId: string; chunk: string } }
+    | { type: 'AI_STREAM_END'; payload: Message };
 
 const parseChat = (chat: any): Chat => {
     return {
@@ -205,6 +208,33 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
             if (!hasChanges) return state;
             localStorage.setItem('chat_user_cache', JSON.stringify(Array.from(newCache.entries())));
             return { ...state, userCache: newCache };
+        }
+        case 'AI_STREAM_START': {
+            const placeholder = { ...action.payload, isStreaming: true };
+            const isCurrentChat = state.currentChat?.id === placeholder.chatId;
+            if (!isCurrentChat) return state;
+            // Avoid duplicate if somehow the event fires twice
+            if (state.messages.some(m => m.id === placeholder.id)) return state;
+            return { ...state, messages: [...state.messages, placeholder] };
+        }
+        case 'AI_STREAM_CHUNK': {
+            const { messageId, chunk } = action.payload;
+            const updated = state.messages.map(m =>
+                m.id === messageId ? { ...m, content: m.content + chunk } : m
+            );
+            return { ...state, messages: updated };
+        }
+        case 'AI_STREAM_END': {
+            const finalMsg = action.payload;
+            // Replace streaming placeholder with the finalized message
+            const finalized = state.messages.map(m =>
+                m.id === finalMsg.id ? { ...finalMsg, isStreaming: false } : m
+            );
+            // Update chat list's lastMessage
+            const chatsUpdated = state.chats.map(chat =>
+                chat.id === finalMsg.chatId ? { ...chat, lastMessage: finalMsg } : chat
+            );
+            return { ...state, messages: finalized, chats: chatsUpdated };
         }
         default: return state;
     }
@@ -365,6 +395,9 @@ export function ChatProvider({ children }: ChatProviderProps) {
             dispatch({ type: 'REMOVE_CHAT', payload: chatId });
         });
         socketService.onError(({ message }) => dispatch({ type: 'SET_ERROR', payload: message }));
+        socketService.onAiStreamStart(({ message }) => dispatch({ type: 'AI_STREAM_START', payload: message }));
+        socketService.onAiStreamChunk((data) => dispatch({ type: 'AI_STREAM_CHUNK', payload: data }));
+        socketService.onAiStreamEnd(({ message }) => dispatch({ type: 'AI_STREAM_END', payload: message }));
         socketService.onUserProfileUpdated((updatedUser) => {
             console.log('Received user_profile_updated event:', updatedUser);
 

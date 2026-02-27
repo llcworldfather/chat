@@ -227,11 +227,19 @@ export function ChatWindow() {
                                                     </div>
                                                 )}
 
-                                                <p style={{ wordBreak: 'break-word' }}>{message.content}</p>
+                                <p style={{ wordBreak: 'break-word' }}>
+                                    {message.content}
+                                    {message.isStreaming && (
+                                        <span
+                                            className="inline-block w-0.5 h-4 bg-current ml-0.5 align-middle"
+                                            style={{ animation: 'blink 0.8s step-start infinite' }}
+                                        />
+                                    )}
+                                </p>
 
-                                                <span className="message-time">
-                                                    {formatDateTime(new Date(message.timestamp))}
-                                                </span>
+                                <span className="message-time">
+                                    {message.isStreaming ? '正在输入…' : formatDateTime(new Date(message.timestamp))}
+                                </span>
                                             </div>
                                         </>
                                     )}
