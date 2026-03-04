@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, ChevronLeft, LogOut, Search, UserPlus, X, AlertCircle, Settings, Camera, Lock, User as UserIcon, Save, CheckCircle, Smile, Plus, MoreHorizontal, Trash2, Eraser } from 'lucide-react';
+import { Send, ChevronLeft, LogOut, Search, UserPlus, X, AlertCircle, Settings, Camera, Lock, User as UserIcon, Save, CheckCircle, Smile, Plus, MoreHorizontal, Trash2, Eraser, UserCheck, Ban, Sparkles } from 'lucide-react';
 import { useChat } from './context/ChatContext';
 import { socketService } from './services/socket';
 import { formatMessageDate } from './utils/timeUtils';
@@ -72,12 +72,17 @@ function App() {
         setCurrentChat,
         sendMessage,
         addFriend,
+        loadFriendRequests,
+        loadSentFriendRequests,
+        handleFriendRequest,
         removeFriend,
         clearChatMessages,
         createNewPigsailChat,
         updateUserProfile,
         onlineUsers,
         typingUsers,
+        friendRequests,
+        sentFriendRequests,
         loading,
         error,
         getUserInfo,
@@ -89,6 +94,8 @@ function App() {
     const [mobileShowChat, setMobileShowChat] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [showAddModal, setShowAddModal] = useState(false);
+    const [showRequestsModal, setShowRequestsModal] = useState(false);
+    const [sentRequestFilter, setSentRequestFilter] = useState<'all' | 'pending'>('all');
     const [newContactName, setNewContactName] = useState('');
     const [showProfileModal, setShowProfileModal] = useState(false); // 编辑自己资料
     const [profileForm, setProfileForm] = useState({
@@ -266,8 +273,38 @@ function App() {
             await addFriend(newContactName);
             setNewContactName('');
             setShowAddModal(false);
+            window.alert('好友申请已发送，等待对方处理');
         } catch (e: any) {}
     };
+
+    const openFriendRequests = async () => {
+        try {
+            await loadFriendRequests();
+            await loadSentFriendRequests();
+            setShowRequestsModal(true);
+        } catch (e) {
+            setShowRequestsModal(true);
+        }
+    };
+
+    const onHandleFriendRequest = async (requestId: string, action: 'accept' | 'reject' | 'block') => {
+        try {
+            await handleFriendRequest(requestId, action);
+        } catch (e: any) {
+            window.alert(e?.message || '处理好友申请失败');
+        }
+    };
+
+    const getRequestStatusText = (status: 'pending' | 'accepted' | 'rejected' | 'blocked') => {
+        if (status === 'accepted') return { text: '已接受', color: '#059669', bg: 'rgba(16,185,129,0.12)' };
+        if (status === 'rejected') return { text: '已拒绝', color: '#ca8a04', bg: 'rgba(250,204,21,0.18)' };
+        if (status === 'blocked') return { text: '已拉黑', color: '#dc2626', bg: 'rgba(248,113,113,0.15)' };
+        return { text: '待处理', color: '#2563eb', bg: 'rgba(96,165,250,0.18)' };
+    };
+
+    const filteredSentFriendRequests = sentRequestFilter === 'pending'
+        ? sentFriendRequests.filter((request) => request.status === 'pending')
+        : sentFriendRequests;
 
     const handleCreatePigsailChat = async () => {
         try {
@@ -508,6 +545,125 @@ function App() {
                     </div>
                 )}
 
+                {showRequestsModal && (
+                    <div className="modal-overlay">
+                        <div className="modal-content" style={{ width: 480, maxHeight: '80vh' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                                <h3 style={{ fontSize: 22, fontWeight: 800, color: '#2d3748', margin: 0 }}>好友申请</h3>
+                                <button className="icon-btn" onClick={() => setShowRequestsModal(false)}>
+                                    <X size={20} />
+                                </button>
+                            </div>
+                            <div style={{ overflowY: 'auto', paddingRight: 4 }}>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: '#64748b', marginBottom: 8 }}>收到的申请</div>
+                                {friendRequests.length === 0 && (
+                                    <div style={{ color: '#718096', fontSize: 14, padding: '8px 4px 14px' }}>
+                                        暂无待处理好友申请
+                                    </div>
+                                )}
+                                {friendRequests.map((request) => {
+                                    const sender = request.sender;
+                                    if (!sender) return null;
+                                    return (
+                                        <div key={request.id} style={{ border: '1px solid rgba(148,163,184,0.2)', borderRadius: 12, padding: 12, marginBottom: 10, background: 'rgba(255,255,255,0.65)' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                                                <div className="avatar" style={{ width: 40, height: 40, borderRadius: 12, fontSize: 14, background: 'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)' }}>
+                                                    {sender.avatar ? (
+                                                        <img src={sender.avatar} alt={sender.displayName} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 12 }} />
+                                                    ) : (
+                                                        sender.displayName?.slice(0, 2).toUpperCase()
+                                                    )}
+                                                </div>
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ fontWeight: 700, color: '#2d3748', fontSize: 14 }}>{sender.displayName}</div>
+                                                    <div style={{ color: '#718096', fontSize: 12 }}>@{sender.username}</div>
+                                                </div>
+                                            </div>
+                                            <div style={{ display: 'flex', gap: 8 }}>
+                                                <button className="primary-btn" style={{ marginTop: 0, padding: '10px 12px', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }} onClick={() => onHandleFriendRequest(request.id, 'accept')}>
+                                                    <UserCheck size={15} /> 接受
+                                                </button>
+                                                <button className="icon-btn" style={{ border: '1px solid rgba(148,163,184,0.35)', borderRadius: 10, padding: '10px 12px', color: '#475569', fontWeight: 600 }} onClick={() => onHandleFriendRequest(request.id, 'reject')}>
+                                                    拒绝
+                                                </button>
+                                                <button className="icon-btn danger" style={{ border: '1px solid rgba(248,113,113,0.35)', borderRadius: 10, padding: '10px 12px', fontWeight: 600 }} onClick={() => onHandleFriendRequest(request.id, 'block')}>
+                                                    <Ban size={14} /> 拉黑
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '12px 0 8px' }}>
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: '#64748b' }}>我发出的申请</div>
+                                    <div style={{ display: 'flex', gap: 6 }}>
+                                        <button
+                                            className="icon-btn"
+                                            style={{
+                                                border: '1px solid rgba(148,163,184,0.35)',
+                                                borderRadius: 999,
+                                                padding: '4px 10px',
+                                                fontSize: 12,
+                                                fontWeight: 700,
+                                                color: sentRequestFilter === 'all' ? '#2563eb' : '#64748b',
+                                                background: sentRequestFilter === 'all' ? 'rgba(96,165,250,0.15)' : 'transparent'
+                                            }}
+                                            onClick={() => setSentRequestFilter('all')}
+                                        >
+                                            全部
+                                        </button>
+                                        <button
+                                            className="icon-btn"
+                                            style={{
+                                                border: '1px solid rgba(148,163,184,0.35)',
+                                                borderRadius: 999,
+                                                padding: '4px 10px',
+                                                fontSize: 12,
+                                                fontWeight: 700,
+                                                color: sentRequestFilter === 'pending' ? '#2563eb' : '#64748b',
+                                                background: sentRequestFilter === 'pending' ? 'rgba(96,165,250,0.15)' : 'transparent'
+                                            }}
+                                            onClick={() => setSentRequestFilter('pending')}
+                                        >
+                                            仅待处理
+                                        </button>
+                                    </div>
+                                </div>
+                                {filteredSentFriendRequests.length === 0 && (
+                                    <div style={{ color: '#718096', fontSize: 14, padding: '8px 4px' }}>
+                                        {sentRequestFilter === 'pending' ? '暂无待处理申请' : '暂无已发送申请'}
+                                    </div>
+                                )}
+                                {filteredSentFriendRequests.map((request) => {
+                                    const recipient = request.recipient;
+                                    if (!recipient) return null;
+                                    const statusInfo = getRequestStatusText(request.status);
+                                    return (
+                                        <div key={request.id} style={{ border: '1px solid rgba(148,163,184,0.2)', borderRadius: 12, padding: 12, marginBottom: 10, background: 'rgba(255,255,255,0.65)' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                                <div className="avatar" style={{ width: 40, height: 40, borderRadius: 12, fontSize: 14, background: 'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)' }}>
+                                                    {recipient.avatar ? (
+                                                        <img src={recipient.avatar} alt={recipient.displayName} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 12 }} />
+                                                    ) : (
+                                                        recipient.displayName?.slice(0, 2).toUpperCase()
+                                                    )}
+                                                </div>
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ fontWeight: 700, color: '#2d3748', fontSize: 14 }}>{recipient.displayName}</div>
+                                                    <div style={{ color: '#718096', fontSize: 12 }}>@{recipient.username}</div>
+                                                </div>
+                                                <span style={{ padding: '4px 8px', borderRadius: 999, fontSize: 12, fontWeight: 700, color: statusInfo.color, background: statusInfo.bg }}>
+                                                    {statusInfo.text}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* 2. 编辑自己资料 Modal */}
                 {showProfileModal && (
                     <div className="modal-overlay">
@@ -589,7 +745,20 @@ function App() {
 
                 <div className="chat-layout">
                     <div className="sidebar">
-                        <div className="sidebar-header"><h3>Messages</h3><button onClick={() => setShowAddModal(true)} className="icon-btn" title="添加好友"><UserPlus size={20} /></button></div>
+                        <div className="sidebar-header">
+                            <h3>Messages</h3>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <button onClick={openFriendRequests} className="icon-btn" title="好友申请" style={{ position: 'relative' }}>
+                                    <UserCheck size={18} />
+                                    {friendRequests.length > 0 && (
+                                        <span style={{ position: 'absolute', right: 2, top: 2, minWidth: 14, height: 14, borderRadius: 7, background: '#ef4444', color: 'white', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px' }}>
+                                            {friendRequests.length > 99 ? '99+' : friendRequests.length}
+                                        </span>
+                                    )}
+                                </button>
+                                <button onClick={() => setShowAddModal(true)} className="icon-btn" title="添加好友"><UserPlus size={20} /></button>
+                            </div>
+                        </div>
                         <div style={{ padding: '0 25px 15px' }}><div style={{ position: 'relative' }}><Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} /><input type="text" placeholder="搜索联系人..." style={{ width: '100%', padding: '10px 10px 10px 36px', borderRadius: 10, border: 'none', background: 'rgba(255,255,255,0.5)', fontSize: 14, outline: 'none' }} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} /></div></div>
 
                         <div className="contact-list">
@@ -1020,10 +1189,16 @@ function App() {
                                                 const displayAvatar = senderAvatar;
 
                                                 return (
-                                                    <div key={message.id} className={`message ${isOwn ? 'sent' : ''}`}>
+                                                    <div
+                                                        key={message.id}
+                                                        className={`message ${isOwn ? 'sent' : ''} ${message.type === 'system' ? 'system-message-row' : ''}`}
+                                                    >
                                                         {message.type === 'system' ? (
-                                                            <div className="w-full text-center">
-                                                                <span className="text-xs text-gray-500 italic bg-gray-100 px-3 py-1 rounded-full">{message.content}</span>
+                                                            <div className="system-message-wrap">
+                                                                <div className="system-message-pill">
+                                                                    <Sparkles size={13} />
+                                                                    <span>{message.content}</span>
+                                                                </div>
                                                             </div>
                                                         ) : (
                                                             <>

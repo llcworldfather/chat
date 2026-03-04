@@ -1,5 +1,5 @@
 import { io, Socket } from 'socket.io-client';
-import { User, Message, Chat, SocketUser, CreateGroupData, TypingUser } from '../types';
+import { User, Message, Chat, SocketUser, CreateGroupData, TypingUser, FriendRequest } from '../types';
 
 const SERVER_URL = process.env.REACT_APP_SERVER_URL || 'http://localhost:5000';
 
@@ -134,6 +134,24 @@ class SocketService {
         this.socket?.on('friend_removed', callback);
     }
 
+    onFriendRequestsLoaded(callback: (requests: FriendRequest[]) => void): void {
+        this.socket?.on('friend_requests_loaded', callback);
+    }
+
+    onFriendSentRequestsLoaded(callback: (requests: FriendRequest[]) => void): void {
+        this.socket?.on('friend_sent_requests_loaded', callback);
+    }
+
+    onFriendRequestReceived(callback: (request: FriendRequest) => void): void {
+        this.socket?.on('friend_request_received', callback);
+    }
+
+    onFriendRequestHandled(
+        callback: (data: { requestId: string; action: 'accepted' | 'rejected' | 'blocked'; byUser: User }) => void
+    ): void {
+        this.socket?.on('friend_request_handled', callback);
+    }
+
     onChatCleared(callback: (data: { chatId: string; clearedBy: string }) => void): void {
         this.socket?.on('chat_cleared', callback);
     }
@@ -235,6 +253,57 @@ class SocketService {
                 } else {
                     resolve(response);
                 }
+            });
+        });
+    }
+
+    getFriendRequests(): Promise<{ requests: FriendRequest[] }> {
+        return new Promise((resolve, reject) => {
+            if (!this.socket) {
+                reject(new Error('Socket not connected'));
+                return;
+            }
+            this.socket.emit('get_friend_requests', (response: any) => {
+                if (!response || response.error) {
+                    reject(new Error(response?.error || '加载好友申请失败'));
+                    return;
+                }
+                resolve(response);
+            });
+        });
+    }
+
+    getSentFriendRequests(): Promise<{ requests: FriendRequest[] }> {
+        return new Promise((resolve, reject) => {
+            if (!this.socket) {
+                reject(new Error('Socket not connected'));
+                return;
+            }
+            this.socket.emit('get_sent_friend_requests', (response: any) => {
+                if (!response || response.error) {
+                    reject(new Error(response?.error || '加载已发送申请失败'));
+                    return;
+                }
+                resolve(response);
+            });
+        });
+    }
+
+    handleFriendRequest(
+        requestId: string,
+        action: 'accept' | 'reject' | 'block'
+    ): Promise<{ success: boolean; action: 'accepted' | 'rejected' | 'blocked'; requestId: string }> {
+        return new Promise((resolve, reject) => {
+            if (!this.socket) {
+                reject(new Error('Socket not connected'));
+                return;
+            }
+            this.socket.emit('handle_friend_request', { requestId, action }, (response: any) => {
+                if (!response || response.error) {
+                    reject(new Error(response?.error || '处理好友申请失败'));
+                    return;
+                }
+                resolve(response);
             });
         });
     }

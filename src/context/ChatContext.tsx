@@ -9,7 +9,8 @@ import {
     SocketUser,
     TypingUser,
     CreateGroupData,
-    RegisterRequest
+    RegisterRequest,
+    FriendRequest
 } from '../types';
 
 interface ChatState {
@@ -25,6 +26,8 @@ interface ChatState {
     loading: boolean;
     error: string | null;
     userCache: Map<string, User>;
+    friendRequests: FriendRequest[];
+    sentFriendRequests: FriendRequest[];
 }
 
 type ChatAction =
@@ -52,7 +55,13 @@ type ChatAction =
     | { type: 'CACHE_USERS'; payload: User[] }
     | { type: 'AI_STREAM_START'; payload: Message }
     | { type: 'AI_STREAM_CHUNK'; payload: { messageId: string; chunk: string } }
-    | { type: 'AI_STREAM_END'; payload: Message };
+    | { type: 'AI_STREAM_END'; payload: Message }
+    | { type: 'SET_FRIEND_REQUESTS'; payload: FriendRequest[] }
+    | { type: 'ADD_FRIEND_REQUEST'; payload: FriendRequest }
+    | { type: 'REMOVE_FRIEND_REQUEST'; payload: string }
+    | { type: 'SET_SENT_FRIEND_REQUESTS'; payload: FriendRequest[] }
+    | { type: 'ADD_SENT_FRIEND_REQUEST'; payload: FriendRequest }
+    | { type: 'UPDATE_SENT_FRIEND_REQUEST_STATUS'; payload: { requestId: string; status: 'accepted' | 'rejected' | 'blocked' } };
 
 const parseChat = (chat: any): Chat => {
     return {
@@ -82,6 +91,8 @@ const initialState: ChatState = {
     loading: false,
     error: null,
     userCache: loadCache(),
+    friendRequests: [],
+    sentFriendRequests: []
 };
 
 function chatReducer(state: ChatState, action: ChatAction): ChatState {
@@ -265,6 +276,32 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
             );
             return { ...state, messages: finalized, chats: chatsUpdated };
         }
+        case 'SET_FRIEND_REQUESTS':
+            return { ...state, friendRequests: action.payload };
+        case 'ADD_FRIEND_REQUEST':
+            if (state.friendRequests.some(r => r.id === action.payload.id)) return state;
+            return { ...state, friendRequests: [action.payload, ...state.friendRequests] };
+        case 'REMOVE_FRIEND_REQUEST':
+            return { ...state, friendRequests: state.friendRequests.filter(r => r.id !== action.payload) };
+        case 'SET_SENT_FRIEND_REQUESTS':
+            return { ...state, sentFriendRequests: action.payload };
+        case 'ADD_SENT_FRIEND_REQUEST':
+            if (state.sentFriendRequests.some(r => r.id === action.payload.id)) return state;
+            return { ...state, sentFriendRequests: [action.payload, ...state.sentFriendRequests] };
+        case 'UPDATE_SENT_FRIEND_REQUEST_STATUS':
+            return {
+                ...state,
+                sentFriendRequests: state.sentFriendRequests.map((request) =>
+                    request.id === action.payload.requestId
+                        ? {
+                            ...request,
+                            status: action.payload.status,
+                            updatedAt: new Date(),
+                            respondedAt: new Date()
+                        }
+                        : request
+                )
+            };
         default: return state;
     }
 }
@@ -421,6 +458,21 @@ export function ChatProvider({ children }: ChatProviderProps) {
             if (localStorage.getItem('lastActiveChatId') === data.chatId) {
                 localStorage.removeItem('lastActiveChatId');
             }
+        });
+        socketService.onFriendRequestsLoaded((requests) => {
+            dispatch({ type: 'SET_FRIEND_REQUESTS', payload: requests || [] });
+        });
+        socketService.onFriendSentRequestsLoaded((requests) => {
+            dispatch({ type: 'SET_SENT_FRIEND_REQUESTS', payload: requests || [] });
+        });
+        socketService.onFriendRequestReceived((request) => {
+            dispatch({ type: 'ADD_FRIEND_REQUEST', payload: request });
+        });
+        socketService.onFriendRequestHandled((data) => {
+            dispatch({
+                type: 'UPDATE_SENT_FRIEND_REQUEST_STATUS',
+                payload: { requestId: data.requestId, status: data.action }
+            });
         });
         socketService.onChatCleared((data) => {
             dispatch({ type: 'CHAT_CLEARED', payload: data });
@@ -609,15 +661,53 @@ export function ChatProvider({ children }: ChatProviderProps) {
         dispatch({ type: 'SET_LOADING', payload: true });
         try {
             const response = await socketService.addFriend(friendName);
-            if (!response || !response.chat) {
-                throw new Error(response?.message || response?.error || '未找到该账号或添加失败');
-            }
-            if (response && response.chat) {
+            if (response?.alreadyFriends && response?.chat) {
                 const parsedChat = parseChat(response.chat);
                 dispatch({ type: 'ADD_CHAT', payload: parsedChat });
+                return;
+            }
+            if (!response?.success) {
+                throw new Error(response?.message || response?.error || '未找到该账号或添加失败');
+            }
+            if (response?.request) {
+                dispatch({ type: 'ADD_SENT_FRIEND_REQUEST', payload: response.request });
             }
         } catch (error: any) {
             dispatch({ type: 'SET_ERROR', payload: error.message });
+            throw error;
+        } finally {
+            dispatch({ type: 'SET_LOADING', payload: false });
+        }
+    };
+
+    const loadFriendRequests = async () => {
+        try {
+            const response = await socketService.getFriendRequests();
+            dispatch({ type: 'SET_FRIEND_REQUESTS', payload: response.requests || [] });
+        } catch (error: any) {
+            dispatch({ type: 'SET_ERROR', payload: error.message || '加载好友申请失败' });
+            throw error;
+        }
+    };
+
+    const loadSentFriendRequests = async () => {
+        try {
+            const response = await socketService.getSentFriendRequests();
+            dispatch({ type: 'SET_SENT_FRIEND_REQUESTS', payload: response.requests || [] });
+        } catch (error: any) {
+            dispatch({ type: 'SET_ERROR', payload: error.message || '加载已发送好友申请失败' });
+            throw error;
+        }
+    };
+
+    const handleFriendRequest = async (requestId: string, action: 'accept' | 'reject' | 'block') => {
+        dispatch({ type: 'SET_ERROR', payload: null });
+        dispatch({ type: 'SET_LOADING', payload: true });
+        try {
+            await socketService.handleFriendRequest(requestId, action);
+            dispatch({ type: 'REMOVE_FRIEND_REQUEST', payload: requestId });
+        } catch (error: any) {
+            dispatch({ type: 'SET_ERROR', payload: error.message || '处理好友申请失败' });
             throw error;
         } finally {
             dispatch({ type: 'SET_LOADING', payload: false });
@@ -723,7 +813,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         ...state,
         login, register, logout, setCurrentChat, sendMessage, markMessagesAsRead,
         createGroup, getPrivateChat, leaveGroup, typingStart, typingStop,
-        addFriend, removeFriend, clearChatMessages, createNewPigsailChat, updateUserProfile,
+        addFriend, loadFriendRequests, loadSentFriendRequests, handleFriendRequest, removeFriend, clearChatMessages, createNewPigsailChat, updateUserProfile,
         getUserInfo,
         clearError
     };

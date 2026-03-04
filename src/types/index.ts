@@ -34,6 +34,19 @@ export interface Chat {
     unreadCounts: Map<string, number>;
 }
 
+export interface FriendRequest {
+    id: string;
+    senderId: string;
+    recipientId: string;
+    status: 'pending' | 'accepted' | 'rejected' | 'blocked';
+    message: string;
+    createdAt: Date;
+    updatedAt: Date;
+    respondedAt?: Date;
+    sender?: User;
+    recipient?: User;
+}
+
 export interface SocketUser {
     id: string;
     username: string;
@@ -94,6 +107,8 @@ export interface ChatContextType {
     isConnected: boolean;
     loading: boolean;
     error: string | null;
+    friendRequests: FriendRequest[];
+    sentFriendRequests: FriendRequest[];
 
     // Actions
     login: (username: string, password: string) => Promise<void>;
@@ -107,7 +122,10 @@ export interface ChatContextType {
     leaveGroup: (chatId: string) => void;
     typingStart: (chatId: string) => void;
     typingStop: (chatId: string) => void;
-    addFriend: (friendName: string) => void;
+    addFriend: (friendName: string) => Promise<void>;
+    loadFriendRequests: () => Promise<void>;
+    loadSentFriendRequests: () => Promise<void>;
+    handleFriendRequest: (requestId: string, action: 'accept' | 'reject' | 'block') => Promise<void>;
     removeFriend: (friendId: string) => Promise<void>;
     clearChatMessages: (chatId: string) => Promise<void>;
     createNewPigsailChat: () => Promise<void>;
