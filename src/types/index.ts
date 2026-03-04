@@ -108,6 +108,9 @@ export interface ChatContextType {
     typingStart: (chatId: string) => void;
     typingStop: (chatId: string) => void;
     addFriend: (friendName: string) => void;
+    removeFriend: (friendId: string) => Promise<void>;
+    clearChatMessages: (chatId: string) => Promise<void>;
+    createNewPigsailChat: () => Promise<void>;
     updateUserProfile: (data: { displayName?: string; avatar?: string; password?: string; email?: string }) => Promise<void>;
 
     // [新增] 清除错误的方法

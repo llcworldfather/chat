@@ -3,7 +3,8 @@ import {
     Search,
     Users,
     MessageCircle,
-    LogOut
+    LogOut,
+    Plus
 } from 'lucide-react';
 import { useChat } from '../../context/ChatContext';
 import { formatTime } from '../../utils/timeUtils';
@@ -14,13 +15,50 @@ export function Sidebar() {
         chats,
         currentChat,
         onlineUsers,
+        userCache,
         setCurrentChat,
         logout,
+        loading,
+        createNewPigsailChat,
         getUserInfo // [新增] 使用 Context 里的方法
     } = useChat();
 
     const [searchQuery, setSearchQuery] = useState('');
     const [showUserList, setShowUserList] = useState(false);
+
+    const pigsailUserId = useMemo(() => {
+        const fromOnline = onlineUsers.find(u =>
+            (u.username || '').toLowerCase() === 'pigsail' ||
+            (u.displayName || '').toLowerCase() === 'pigsail'
+        );
+        if (fromOnline) return fromOnline.id;
+
+        for (const [, cachedUser] of Array.from(userCache.entries())) {
+            if (
+                (cachedUser.username || '').toLowerCase() === 'pigsail' ||
+                (cachedUser.displayName || '').toLowerCase() === 'pigsail'
+            ) {
+                return cachedUser.id;
+            }
+        }
+        return null;
+    }, [onlineUsers, userCache]);
+
+    const getOtherParticipant = (chat: any) => {
+        if (chat.type !== 'private') return null;
+        const otherParticipantId = chat.participants.find((id: string) => id !== user?.id);
+        return otherParticipantId ? getUserInfo(otherParticipantId) : null;
+    };
+
+    const isPigsailChat = (chat: any) => {
+        if (chat.type !== 'private') return false;
+        const otherUser = getOtherParticipant(chat);
+        const byUser = (otherUser?.username || '').toLowerCase() === 'pigsail';
+        const byDisplayName = (otherUser?.displayName || '').toLowerCase() === 'pigsail';
+        const byChatName = (chat.name || '').toLowerCase().includes('pigsail');
+        const byParticipantId = !!pigsailUserId && chat.participants.includes(pigsailUserId);
+        return byUser || byDisplayName || byChatName || byParticipantId;
+    };
 
     const getChatDisplayInfo = (chat: any) => {
         if (chat.type === 'group') {
@@ -33,9 +71,11 @@ export function Sidebar() {
             };
         } else {
             const otherParticipantId = chat.participants.find((id: string) => id !== user?.id);
-            // [修改] 使用全局方法获取用户信息
-            const otherUser = otherParticipantId ? getUserInfo(otherParticipantId) : null;
-            const displayName = otherUser ? (otherUser.displayName || otherUser.username) : '未知用户';
+            const otherUser = getOtherParticipant(chat);
+            const isPigsail = otherUser?.username?.toLowerCase() === 'pigsail';
+            const displayName = isPigsail
+                ? (chat.name || otherUser?.displayName || 'PigSail')
+                : (otherUser ? (otherUser.displayName || otherUser.username) : '未知用户');
             const avatar = otherUser?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent('User')}&background=random`;
             const isOnline = onlineUsers.some(u => u.id === otherParticipantId);
 
@@ -57,13 +97,33 @@ export function Sidebar() {
             if (chat.type === 'group') {
                 return chat.name?.toLowerCase().includes(searchQuery.toLowerCase());
             } else {
-                const otherParticipantId = chat.participants.find((id: string) => id !== user?.id);
-                const otherUser = otherParticipantId ? getUserInfo(otherParticipantId) : null;
-                const name = otherUser ? (otherUser.displayName || otherUser.username) : '';
+                const otherUser = getOtherParticipant(chat);
+                const isPigsail = otherUser?.username?.toLowerCase() === 'pigsail';
+                const name = isPigsail
+                    ? (chat.name || otherUser?.displayName || otherUser?.username || '')
+                    : (otherUser ? (otherUser.displayName || otherUser.username) : '');
                 return name.toLowerCase().includes(searchQuery.toLowerCase());
             }
         });
-    }, [chats, searchQuery, user?.id, getUserInfo]);
+    }, [chats, searchQuery, user?.id, getUserInfo, pigsailUserId]);
+
+    const pigsailChats = useMemo(
+        () => filteredChats.filter(chat => isPigsailChat(chat)),
+        [filteredChats, user?.id, getUserInfo]
+    );
+
+    const normalChats = useMemo(
+        () => filteredChats.filter(chat => !isPigsailChat(chat)),
+        [filteredChats, user?.id, getUserInfo]
+    );
+
+    const handleCreatePigsailChat = async () => {
+        try {
+            await createNewPigsailChat();
+        } catch (e) {
+            // error already handled in context
+        }
+    };
 
     return (
         <div className="w-80 bg-white border-r border-gray-200 flex flex-col h-full">
@@ -125,14 +185,108 @@ export function Sidebar() {
                             {searchQuery ? '没有找到匹配的对话' : '还没有对话'}
                         </p>
                         {!searchQuery && (
-                            <button className="btn-primary mt-3 text-sm">
+                            <button
+                                className="btn-primary mt-3 text-sm"
+                                onClick={handleCreatePigsailChat}
+                                disabled={loading}
+                            >
                                 开始新对话
                             </button>
                         )}
                     </div>
                 ) : (
                     <div className="p-2">
-                        {filteredChats.map((chat) => {
+                        {!searchQuery && (
+                            <div className="mb-2">
+                                <div className="flex items-center justify-between px-2 py-1 mb-1">
+                                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                                        PigSail和他的朋友们
+                                    </p>
+                                    <button
+                                        className="btn-ghost !p-1.5"
+                                        onClick={handleCreatePigsailChat}
+                                        disabled={loading}
+                                        title="开启新对话"
+                                    >
+                                        <Plus className="w-4 h-4" />
+                                    </button>
+                                </div>
+                                {pigsailChats.length === 0 ? (
+                                    <p className="px-2 py-2 text-xs text-gray-400">还没有 PigSail 对话</p>
+                                ) : pigsailChats.map((chat) => {
+                                    const chatInfo = getChatDisplayInfo(chat);
+                                    const isActive = currentChat?.id === chat.id;
+
+                                    return (
+                                        <button
+                                            key={chat.id}
+                                            onClick={() => setCurrentChat(chat)}
+                                            className={`w-full p-3 rounded-lg transition-all text-left ${
+                                                isActive
+                                                    ? 'bg-blue-50 border border-blue-200'
+                                                    : 'hover:bg-gray-50 border border-transparent'
+                                            }`}
+                                        >
+                                            <div className="flex items-start gap-3">
+                                                <div className="relative flex-shrink-0">
+                                                    <div className="avatar">
+                                                        <img
+                                                            src={chatInfo.avatar}
+                                                            alt={chatInfo.name}
+                                                            className="w-full h-full object-cover rounded-full"
+                                                            onError={(e) => {
+                                                                const target = e.target as HTMLImageElement;
+                                                                target.style.display = 'none';
+                                                                target.parentElement!.innerHTML = chatInfo.name.charAt(0).toUpperCase();
+                                                            }}
+                                                        />
+                                                    </div>
+                                                    {chatInfo.isOnline && (
+                                                        <div className="status-indicator status-online" />
+                                                    )}
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center justify-between mb-1">
+                                                        <h4 className="font-medium text-gray-900 truncate">
+                                                            {chatInfo.name}
+                                                        </h4>
+                                                        {chatInfo.unreadCount > 0 ? (
+                                                            <div style={{
+                                                                background: '#ff5f57',
+                                                                color: 'white',
+                                                                fontSize: 10,
+                                                                fontWeight: 'bold',
+                                                                minWidth: 16,
+                                                                height: 16,
+                                                                borderRadius: 8,
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                padding: '0 4px'
+                                                            }}>
+                                                                {chatInfo.unreadCount > 99 ? '99+' : chatInfo.unreadCount}
+                                                            </div>
+                                                        ) : (
+                                                            chat.lastMessage && (
+                                                                <span className="text-xs text-gray-500 ml-2">
+                                                                    {formatTime(new Date(chat.lastMessage.timestamp))}
+                                                                </span>
+                                                            )
+                                                        )}
+                                                    </div>
+                                                    <div className="flex items-center justify-between">
+                                                        <p className="text-sm text-gray-600 truncate">
+                                                            {chatInfo.lastMessage || '暂无消息'}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
+                        {normalChats.map((chat) => {
                             const chatInfo = getChatDisplayInfo(chat);
                             const isActive = currentChat?.id === chat.id;
 

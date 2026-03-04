@@ -106,6 +106,10 @@ class SocketService {
         this.socket?.on('private_chat_loaded', callback);
     }
 
+    onChatMessagesLoaded(callback: (data: { chat: Chat; messages: Message[]; recipient: User | null }) => void): void {
+        this.socket?.on('chat_messages_loaded', callback);
+    }
+
     onGroupCreated(callback: (chat: Chat) => void): void {
         this.socket?.on('group_created', callback);
     }
@@ -124,6 +128,14 @@ class SocketService {
 
     onFriendAdded(callback: (data: { chat: Chat; friend: User; systemMessage: Message | null }) => void): void {
         this.socket?.on('friend_added', callback);
+    }
+
+    onFriendRemoved(callback: (data: { chatId: string; friendId: string }) => void): void {
+        this.socket?.on('friend_removed', callback);
+    }
+
+    onChatCleared(callback: (data: { chatId: string; clearedBy: string }) => void): void {
+        this.socket?.on('chat_cleared', callback);
     }
 
     onUserTyping(callback: (data: { chatId: string; user: TypingUser }) => void): void {
@@ -177,6 +189,31 @@ class SocketService {
         this.socket?.emit('get_private_chat', recipientId);
     }
 
+    getChatMessages(chatId: string): void {
+        this.socket?.emit('get_chat_messages', chatId);
+    }
+
+    createPigsailChat(): Promise<{ chat: Chat; messages: Message[]; recipient: User | null }> {
+        return new Promise((resolve, reject) => {
+            if (!this.socket) {
+                reject(new Error('Socket not connected'));
+                return;
+            }
+
+            this.socket.emit('create_pigsail_chat', (response: any) => {
+                if (!response) {
+                    reject(new Error('创建 PigSail 对话失败'));
+                    return;
+                }
+                if (response.error) {
+                    reject(new Error(response.error));
+                    return;
+                }
+                resolve(response);
+            });
+        });
+    }
+
     createGroup(groupData: CreateGroupData): void {
         this.socket?.emit('create_group', groupData);
     }
@@ -198,6 +235,38 @@ class SocketService {
                 } else {
                     resolve(response);
                 }
+            });
+        });
+    }
+
+    removeFriend(friendId: string): Promise<{ success: boolean; chatId: string }> {
+        return new Promise((resolve, reject) => {
+            if (!this.socket) {
+                reject(new Error('Socket not connected'));
+                return;
+            }
+            this.socket.emit('remove_friend', friendId, (response: any) => {
+                if (!response || response.error) {
+                    reject(new Error(response?.error || '删除好友失败'));
+                    return;
+                }
+                resolve(response);
+            });
+        });
+    }
+
+    clearChatMessages(chatId: string): Promise<{ success: boolean; chatId: string }> {
+        return new Promise((resolve, reject) => {
+            if (!this.socket) {
+                reject(new Error('Socket not connected'));
+                return;
+            }
+            this.socket.emit('clear_chat_messages', chatId, (response: any) => {
+                if (!response || response.error) {
+                    reject(new Error(response?.error || '清空聊天记录失败'));
+                    return;
+                }
+                resolve(response);
             });
         });
     }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, ChevronLeft, LogOut, Search, UserPlus, X, AlertCircle, Settings, Camera, Lock, User as UserIcon, Save, CheckCircle, Paperclip, Smile, MessageSquare } from 'lucide-react';
+import { Send, ChevronLeft, LogOut, Search, UserPlus, X, AlertCircle, Settings, Camera, Lock, User as UserIcon, Save, CheckCircle, Smile, Plus, MoreHorizontal, Trash2, Eraser } from 'lucide-react';
 import { useChat } from './context/ChatContext';
 import { socketService } from './services/socket';
 import { formatMessageDate } from './utils/timeUtils';
@@ -72,6 +72,9 @@ function App() {
         setCurrentChat,
         sendMessage,
         addFriend,
+        removeFriend,
+        clearChatMessages,
+        createNewPigsailChat,
         updateUserProfile,
         onlineUsers,
         typingUsers,
@@ -99,6 +102,10 @@ function App() {
 
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
     const [activeEmojiCategory, setActiveEmojiCategory] = useState('smileys');
+    const [isPigsailExpanded, setIsPigsailExpanded] = useState(true);
+    const [isFriendExpanded, setIsFriendExpanded] = useState(true);
+    const [isGroupExpanded, setIsGroupExpanded] = useState(true);
+    const [activeContactMenuChatId, setActiveContactMenuChatId] = useState<string | null>(null);
 
     const [username, setUsername] = useState('');
     const [displayName, setDisplayName] = useState('');
@@ -116,6 +123,17 @@ function App() {
     const emojiBtnRef = useRef<HTMLButtonElement>(null);
 
     useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, currentChat, typingUsers]);
+
+    useEffect(() => {
+        const closeMenu = (event: MouseEvent) => {
+            const target = event.target as HTMLElement;
+            if (!target.closest('.contact-action-menu')) {
+                setActiveContactMenuChatId(null);
+            }
+        };
+        document.addEventListener('mousedown', closeMenu);
+        return () => document.removeEventListener('mousedown', closeMenu);
+    }, []);
 
     // 监听全局点击事件，点击外部关闭表情面板
     useEffect(() => {
@@ -187,18 +205,58 @@ function App() {
         return u ? (u.displayName || u.username) : `User ${userId.slice(0, 6)}`;
     };
 
+    const getOtherParticipantId = (chat: any): string | null => {
+        if (!chat || chat.type !== 'private') return null;
+        const pid = chat.participants.find((id: string) => id !== user?.id);
+        return pid || null;
+    };
+
+    const pigsailIdSet = new Set<string>();
+    onlineUsers.forEach(u => {
+        if ((u.username || '').toLowerCase() === 'pigsail' || (u.displayName || '').toLowerCase() === 'pigsail') {
+            pigsailIdSet.add(u.id);
+        }
+    });
+    chats.forEach(chat => {
+        if (chat.type === 'private' && (chat.name || '').toLowerCase().includes('pigsail')) {
+            const pid = getOtherParticipantId(chat);
+            if (pid) pigsailIdSet.add(pid);
+        }
+    });
+
+    const isPigsailChat = (chat: any): boolean => {
+        if (chat.type !== 'private') return false;
+        const pid = getOtherParticipantId(chat);
+        if (!pid) return false;
+        const otherUser = getUserInfo(pid);
+        const byUsername = (otherUser?.username || '').toLowerCase() === 'pigsail';
+        const byDisplayName = (otherUser?.displayName || '').toLowerCase() === 'pigsail';
+        const byChatName = (chat.name || '').toLowerCase().includes('pigsail');
+        const byKnownPigsailId = pigsailIdSet.has(pid);
+        return byUsername || byDisplayName || byChatName || byKnownPigsailId;
+    };
+
     const filteredChats = chats.filter(chat => {
         if (!searchQuery) return true;
         const lowerQuery = searchQuery.toLowerCase();
         if (chat.type === 'private') {
             const pid = chat.participants.find(id => id !== user?.id);
             if (!pid) return false;
-            const name = getUserDisplayName(pid);
+            const otherUser = getUserInfo(pid);
+            const isPigsail = (otherUser?.username || '').toLowerCase() === 'pigsail' || (otherUser?.displayName || '').toLowerCase() === 'pigsail';
+            const name = isPigsail
+                ? (chat.name || otherUser?.displayName || otherUser?.username || '')
+                : getUserDisplayName(pid);
             return name.toLowerCase().includes(lowerQuery);
         } else {
             return chat.name?.toLowerCase().includes(lowerQuery);
         }
     });
+
+    const pigsailChats = filteredChats.filter(chat => isPigsailChat(chat));
+    const normalChats = filteredChats.filter(chat => !isPigsailChat(chat));
+    const friendChats = normalChats.filter(chat => chat.type === 'private');
+    const groupChats = normalChats.filter(chat => chat.type === 'group');
 
     const handleAddContact = async () => {
         setModalError('');
@@ -209,6 +267,37 @@ function App() {
             setNewContactName('');
             setShowAddModal(false);
         } catch (e: any) {}
+    };
+
+    const handleCreatePigsailChat = async () => {
+        try {
+            await createNewPigsailChat();
+        } catch (e) {
+            // error already handled in context
+        }
+    };
+
+    const handleRemoveFriend = async (friendId: string, friendName: string) => {
+        if (!window.confirm(`确认删除好友 "${friendName}" 吗？`)) return;
+        try {
+            await removeFriend(friendId);
+            setActiveContactMenuChatId(null);
+            if (currentChat?.type === 'private' && currentChat.participants.includes(friendId)) {
+                setMobileShowChat(false);
+            }
+        } catch (e: any) {
+            window.alert(e?.message || '删除好友失败');
+        }
+    };
+
+    const handleClearConversation = async (chatId: string) => {
+        if (!window.confirm('确认清空与该联系人的全部聊天记录吗？')) return;
+        try {
+            await clearChatMessages(chatId);
+            setActiveContactMenuChatId(null);
+        } catch (e: any) {
+            window.alert(e?.message || '清空聊天记录失败');
+        }
     };
 
     const handleUpdateProfile = async () => {
@@ -293,7 +382,7 @@ function App() {
         if (currentChat.type === 'private' && currentChat.participants.length === 2) {
             const otherUserId = currentChat.participants.find(p => p !== user?.id);
             const otherUser = otherUserId ? getUserInfo(otherUserId) : null;
-            const displayName = otherUser ? (otherUser.displayName || otherUser.username) : 'Unknown';
+            const displayName = currentChat.name || (otherUser ? (otherUser.displayName || otherUser.username) : 'Unknown');
             const isOnline = onlineUsers.some(u => u.id === otherUserId);
 
             return {
@@ -504,7 +593,54 @@ function App() {
                         <div style={{ padding: '0 25px 15px' }}><div style={{ position: 'relative' }}><Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} /><input type="text" placeholder="搜索联系人..." style={{ width: '100%', padding: '10px 10px 10px 36px', borderRadius: 10, border: 'none', background: 'rgba(255,255,255,0.5)', fontSize: 14, outline: 'none' }} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} /></div></div>
 
                         <div className="contact-list">
-                            {filteredChats.map(chat => {
+                            <div style={{ padding: '0 14px 8px' }}>
+                                <div className="contact-section-header-row">
+                                    <div
+                                        className="contact-section-label-wrap contact-section-toggle"
+                                        onClick={() => setIsPigsailExpanded(prev => !prev)}
+                                        role="button"
+                                        tabIndex={0}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                e.preventDefault();
+                                                setIsPigsailExpanded(prev => !prev);
+                                            }
+                                        }}
+                                    >
+                                        <ChevronLeft
+                                            size={12}
+                                            style={{
+                                                color: '#94a3b8',
+                                                transform: isPigsailExpanded ? 'rotate(-90deg)' : 'rotate(0deg)',
+                                                transition: 'transform 0.2s ease'
+                                            }}
+                                        />
+                                        <div className="contact-section-title">
+                                            PigSail和他的朋友们
+                                        </div>
+                                        <div className="contact-section-line" />
+                                    </div>
+                                    <button
+                                        className="icon-btn"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleCreatePigsailChat();
+                                        }}
+                                        title="开启新对话"
+                                        disabled={loading}
+                                        style={{ opacity: loading ? 0.5 : 1 }}
+                                    >
+                                        <Plus size={16} />
+                                    </button>
+                                </div>
+                                {isPigsailExpanded && pigsailChats.length === 0 && (
+                                    <div style={{ fontSize: 12, color: '#a0aec0', padding: '2px 0 8px' }}>
+                                        还没有 PigSail 对话
+                                    </div>
+                                )}
+                            </div>
+
+                            {isPigsailExpanded && pigsailChats.map(chat => {
                                 let info: any = {};
                                 let unreadCount = 0;
                                 if (chat.unreadCounts instanceof Map) { unreadCount = chat.unreadCounts.get(user?.id || '') || 0; }
@@ -512,7 +648,10 @@ function App() {
                                 if (chat.type === 'private') {
                                     const pid = chat.participants.find(id => id !== user.id);
                                     const otherUser = pid ? getUserInfo(pid) : null;
-                                    const name = otherUser ? (otherUser.displayName || otherUser.username) : (pid ? `User ${pid.slice(0,6)}` : 'Unknown');
+                                    const isPigsail = (otherUser?.username || '').toLowerCase() === 'pigsail' || (otherUser?.displayName || '').toLowerCase() === 'pigsail';
+                                    const name = isPigsail
+                                        ? (chat.name || otherUser?.displayName || 'PigSail')
+                                        : (otherUser ? (otherUser.displayName || otherUser.username) : (pid ? `User ${pid.slice(0,6)}` : 'Unknown'));
                                     const online = onlineUsers.some(u => u.id === pid);
 
                                     info = {
@@ -541,6 +680,261 @@ function App() {
                                         }}>
                                             <div className="avatar" style={{ background: info.color }}>
                                                 {info.avatarUrl ? (<img src={info.avatarUrl} alt={info.name} style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:'inherit'}}/>) : (info.avatar)}
+                                            </div>
+                                            {info.online && <div className="status-indicator status-online" />}
+                                        </div>
+                                        <div style={{flex:1, minWidth:0}}>
+                                            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                                                <div style={{fontWeight:700,fontSize:15,color:'#2d3748'}}>{info.name}</div>
+                                                {unreadCount > 0 && (
+                                                    <div style={{ background: '#ff5f57', color: 'white', fontSize: 11, fontWeight: 'bold', minWidth: 18, height: 18, borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px' }}>
+                                                        {unreadCount > 99 ? '99+' : unreadCount}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div style={{fontSize:13,color:'#718096',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{chat.lastMessage?.content || '开始聊天吧'}</div>
+                                        </div>
+                                        {chat.type === 'private' && info.userId && (
+                                            <div className="contact-action-menu" style={{ position: 'relative' }}>
+                                                <button
+                                                    className="icon-btn"
+                                                    style={{ width: 28, height: 28 }}
+                                                    title="联系人操作"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setActiveContactMenuChatId(prev => prev === chat.id ? null : chat.id);
+                                                    }}
+                                                >
+                                                    <MoreHorizontal size={16} />
+                                                </button>
+                                                {activeContactMenuChatId === chat.id && (
+                                                    <div
+                                                        style={{
+                                                            position: 'absolute',
+                                                            top: 34,
+                                                            right: 0,
+                                                            background: 'white',
+                                                            borderRadius: 10,
+                                                            boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+                                                            border: '1px solid rgba(148,163,184,0.2)',
+                                                            zIndex: 20,
+                                                            minWidth: 130,
+                                                            overflow: 'hidden'
+                                                        }}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                    >
+                                                        <button
+                                                            className="icon-btn"
+                                                            style={{ width: '100%', justifyContent: 'flex-start', borderRadius: 0, gap: 8, padding: '8px 10px', color: '#334155' }}
+                                                            onClick={() => handleClearConversation(chat.id)}
+                                                        >
+                                                            <Eraser size={14} />
+                                                            清空对话
+                                                        </button>
+                                                        <button
+                                                            className="icon-btn danger"
+                                                            style={{ width: '100%', justifyContent: 'flex-start', borderRadius: 0, gap: 8, padding: '8px 10px' }}
+                                                            onClick={() => handleRemoveFriend(info.userId, info.name)}
+                                                        >
+                                                            <Trash2 size={14} />
+                                                            删除好友
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                )
+                            })}
+
+                            {friendChats.length > 0 && (
+                                <div style={{ padding: '0 14px 8px' }}>
+                                    <div className="contact-section-header-row contact-section-header-row-plain">
+                                        <div
+                                            className="contact-section-label-wrap contact-section-toggle"
+                                            onClick={() => setIsFriendExpanded(prev => !prev)}
+                                            role="button"
+                                            tabIndex={0}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter' || e.key === ' ') {
+                                                    e.preventDefault();
+                                                    setIsFriendExpanded(prev => !prev);
+                                                }
+                                            }}
+                                        >
+                                            <ChevronLeft
+                                                size={12}
+                                                style={{
+                                                    color: '#94a3b8',
+                                                    transform: isFriendExpanded ? 'rotate(-90deg)' : 'rotate(0deg)',
+                                                    transition: 'transform 0.2s ease'
+                                                }}
+                                            />
+                                            <div className="contact-section-title">好友</div>
+                                            <div className="contact-section-line" />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {isFriendExpanded && friendChats.map(chat => {
+                                let info: any = {};
+                                let unreadCount = 0;
+                                if (chat.unreadCounts instanceof Map) { unreadCount = chat.unreadCounts.get(user?.id || '') || 0; }
+
+                                if (chat.type === 'private') {
+                                    const pid = chat.participants.find(id => id !== user.id);
+                                    const otherUser = pid ? getUserInfo(pid) : null;
+                                    const isPigsail = (otherUser?.username || '').toLowerCase() === 'pigsail' || (otherUser?.displayName || '').toLowerCase() === 'pigsail';
+                                    const name = isPigsail
+                                        ? (chat.name || otherUser?.displayName || 'PigSail')
+                                        : (otherUser ? (otherUser.displayName || otherUser.username) : (pid ? `User ${pid.slice(0,6)}` : 'Unknown'));
+                                    const online = onlineUsers.some(u => u.id === pid);
+
+                                    info = {
+                                        userId: pid,
+                                        name,
+                                        avatar: otherUser?.avatar ? null : name.slice(0,2).toUpperCase(),
+                                        avatarUrl: otherUser?.avatar || null,
+                                        color: 'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)',
+                                        online
+                                    };
+                                } else {
+                                    info = { name: chat.name, avatar: chat.name?.slice(0,2).toUpperCase(), avatarUrl: null, color: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)', online: true };
+                                }
+
+                                return (
+                                    <div key={chat.id} className={`contact-item ${currentChat?.id===chat.id?'active':''}`}
+                                         onClick={(e)=>{
+                                             setCurrentChat(chat);
+                                             setMobileShowChat(true);
+                                         }}
+                                    >
+                                        <div className="relative-avatar-container" onClick={(e) => {
+                                            e.stopPropagation();
+                                            if(info.userId) handleViewUser(info.userId);
+                                        }}>
+                                            <div className="avatar" style={{ background: info.color }}>
+                                                {info.avatarUrl ? (<img src={info.avatarUrl} alt={info.name} style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:'inherit'}}/>) : (info.avatar)}
+                                            </div>
+                                            {info.online && <div className="status-indicator status-online" />}
+                                        </div>
+                                        <div style={{flex:1, minWidth:0}}>
+                                            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                                                <div style={{fontWeight:700,fontSize:15,color:'#2d3748'}}>{info.name}</div>
+                                                {unreadCount > 0 && (
+                                                    <div style={{ background: '#ff5f57', color: 'white', fontSize: 11, fontWeight: 'bold', minWidth: 18, height: 18, borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px' }}>
+                                                        {unreadCount > 99 ? '99+' : unreadCount}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div style={{fontSize:13,color:'#718096',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{chat.lastMessage?.content || '开始聊天吧'}</div>
+                                        </div>
+                                        {chat.type === 'private' && info.userId && (
+                                            <div className="contact-action-menu" style={{ position: 'relative' }}>
+                                                <button
+                                                    className="icon-btn"
+                                                    style={{ width: 28, height: 28 }}
+                                                    title="联系人操作"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setActiveContactMenuChatId(prev => prev === chat.id ? null : chat.id);
+                                                    }}
+                                                >
+                                                    <MoreHorizontal size={16} />
+                                                </button>
+                                                {activeContactMenuChatId === chat.id && (
+                                                    <div
+                                                        style={{
+                                                            position: 'absolute',
+                                                            top: 34,
+                                                            right: 0,
+                                                            background: 'white',
+                                                            borderRadius: 10,
+                                                            boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+                                                            border: '1px solid rgba(148,163,184,0.2)',
+                                                            zIndex: 20,
+                                                            minWidth: 130,
+                                                            overflow: 'hidden'
+                                                        }}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                    >
+                                                        <button
+                                                            className="icon-btn"
+                                                            style={{ width: '100%', justifyContent: 'flex-start', borderRadius: 0, gap: 8, padding: '8px 10px', color: '#334155' }}
+                                                            onClick={() => handleClearConversation(chat.id)}
+                                                        >
+                                                            <Eraser size={14} />
+                                                            清空对话
+                                                        </button>
+                                                        <button
+                                                            className="icon-btn danger"
+                                                            style={{ width: '100%', justifyContent: 'flex-start', borderRadius: 0, gap: 8, padding: '8px 10px' }}
+                                                            onClick={() => handleRemoveFriend(info.userId, info.name)}
+                                                        >
+                                                            <Trash2 size={14} />
+                                                            删除好友
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                )
+                            })}
+
+                            {groupChats.length > 0 && (
+                                <div style={{ padding: '8px 14px 8px' }}>
+                                    <div
+                                        className="contact-section-label-wrap contact-section-toggle"
+                                        onClick={() => setIsGroupExpanded(prev => !prev)}
+                                        role="button"
+                                        tabIndex={0}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                e.preventDefault();
+                                                setIsGroupExpanded(prev => !prev);
+                                            }
+                                        }}
+                                    >
+                                        <ChevronLeft
+                                            size={12}
+                                            style={{
+                                                color: '#94a3b8',
+                                                transform: isGroupExpanded ? 'rotate(-90deg)' : 'rotate(0deg)',
+                                                transition: 'transform 0.2s ease'
+                                            }}
+                                        />
+                                        <div className="contact-section-title">群组</div>
+                                        <div className="contact-section-line" />
+                                    </div>
+                                </div>
+                            )}
+
+                            {isGroupExpanded && groupChats.map(chat => {
+                                let info: any = {};
+                                let unreadCount = 0;
+                                if (chat.unreadCounts instanceof Map) { unreadCount = chat.unreadCounts.get(user?.id || '') || 0; }
+
+                                info = {
+                                    userId: null,
+                                    name: chat.name,
+                                    avatar: chat.name?.slice(0,2).toUpperCase(),
+                                    avatarUrl: null,
+                                    color: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+                                    online: true
+                                };
+
+                                return (
+                                    <div key={chat.id} className={`contact-item ${currentChat?.id===chat.id?'active':''}`}
+                                         onClick={(e)=>{
+                                             setCurrentChat(chat);
+                                             setMobileShowChat(true);
+                                         }}
+                                    >
+                                        <div className="relative-avatar-container">
+                                            <div className="avatar" style={{ background: info.color }}>
+                                                {info.avatar}
                                             </div>
                                             {info.online && <div className="status-indicator status-online" />}
                                         </div>

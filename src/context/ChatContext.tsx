@@ -46,6 +46,8 @@ type ChatAction =
     | { type: 'MARK_MESSAGES_READ'; payload: { chatId: string; userId: string } }
     | { type: 'USER_LEFT_GROUP'; payload: { chatId: string; userId: string } }
     | { type: 'REMOVE_CHAT'; payload: string }
+    | { type: 'FRIEND_REMOVED'; payload: { chatId: string } }
+    | { type: 'CHAT_CLEARED'; payload: { chatId: string; clearedBy?: string } }
     | { type: 'CLEAR_CURRENT_CHAT_UNREAD' }
     | { type: 'CACHE_USERS'; payload: User[] }
     | { type: 'AI_STREAM_START'; payload: Message }
@@ -100,14 +102,6 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         case 'ADD_CHAT':
             const newChat = action.payload;
             if (state.chats.some(c => c.id === newChat.id)) return state;
-            if (newChat.type === 'private') {
-                const isDuplicate = state.chats.some(existingChat =>
-                    existingChat.type === 'private' &&
-                    existingChat.participants.length === newChat.participants.length &&
-                    newChat.participants.every((p: string) => existingChat.participants.includes(p))
-                );
-                if (isDuplicate) return state;
-            }
             return { ...state, chats: [newChat, ...state.chats] };
         case 'SET_CURRENT_CHAT': return { ...state, currentChat: action.payload, messages: [] };
         case 'SET_MESSAGES': return { ...state, messages: action.payload };
@@ -189,9 +183,44 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
                 chat.id === leftChatId ? { ...chat, participants: chat.participants.filter(id => id !== leftUserId) } : chat
             );
             return { ...state, chats: updatedChatsAfterLeave, currentChat: state.currentChat?.id === leftChatId ? null : state.currentChat };
-        case 'REMOVE_CHAT':
+        case 'REMOVE_CHAT': {
             const filteredChats = state.chats.filter(chat => chat.id !== action.payload);
-            return { ...state, chats: filteredChats, currentChat: state.currentChat?.id === action.payload ? null : state.currentChat };
+            const removedCurrent = state.currentChat?.id === action.payload;
+            return {
+                ...state,
+                chats: filteredChats,
+                currentChat: removedCurrent ? null : state.currentChat,
+                messages: removedCurrent ? [] : state.messages
+            };
+        }
+        case 'FRIEND_REMOVED': {
+            const filteredChats = state.chats.filter(chat => chat.id !== action.payload.chatId);
+            const removedCurrent = state.currentChat?.id === action.payload.chatId;
+            return {
+                ...state,
+                chats: filteredChats,
+                currentChat: removedCurrent ? null : state.currentChat,
+                messages: removedCurrent ? [] : state.messages
+            };
+        }
+        case 'CHAT_CLEARED': {
+            const targetChatId = action.payload.chatId;
+            const chatsAfterClear = state.chats.map(chat => {
+                if (chat.id !== targetChatId) return chat;
+                const unreadCounts = new Map(chat.unreadCounts || []);
+                unreadCounts.forEach((_, key) => unreadCounts.set(key, 0));
+                return { ...chat, lastMessage: undefined, unreadCounts };
+            });
+            const currentChat = state.currentChat?.id === targetChatId
+                ? { ...state.currentChat, lastMessage: undefined }
+                : state.currentChat;
+            return {
+                ...state,
+                chats: chatsAfterClear,
+                currentChat,
+                messages: state.currentChat?.id === targetChatId ? [] : state.messages
+            };
+        }
 
         case 'CACHE_USERS': {
             const newCache = new Map(state.userCache);
@@ -289,15 +318,20 @@ export function ChatProvider({ children }: ChatProviderProps) {
     useEffect(() => {
         const loadMissingUsers = async () => {
             if (!state.user) return;
+            const hasUserInfo = (userId: string) => {
+                if (state.user?.id === userId) return true;
+                if (state.onlineUsers.some(u => u.id === userId)) return true;
+                return state.userCache.has(userId);
+            };
             const idsToFetch = new Set<string>();
             state.chats.forEach(chat => {
                 if (chat.type === 'private') {
                     const pid = chat.participants.find(id => id !== state.user?.id);
-                    if (pid && !getUserInfo(pid)) idsToFetch.add(pid);
+                    if (pid && !hasUserInfo(pid)) idsToFetch.add(pid);
                 }
             });
             state.messages.forEach(msg => {
-                if (!getUserInfo(msg.senderId)) idsToFetch.add(msg.senderId);
+                if (!hasUserInfo(msg.senderId)) idsToFetch.add(msg.senderId);
             });
             const realIds = Array.from(idsToFetch).filter(id => !fetchingIds.current.has(id));
             if (realIds.length === 0) return;
@@ -316,7 +350,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         };
         const timer = setTimeout(loadMissingUsers, 500);
         return () => clearTimeout(timer);
-    }, [state.chats, state.messages, state.onlineUsers, state.userCache]);
+    }, [state.chats, state.messages, state.onlineUsers, state.userCache, state.user]);
 
     useEffect(() => {
         if (state.onlineUsers.length > 0) {
@@ -343,13 +377,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
                 if (chatToRestore) {
                     const parsedChat = parseChat(chatToRestore);
                     dispatch({ type: 'SET_CURRENT_CHAT', payload: parsedChat });
-                    if (parsedChat.type === 'private') {
-                        const currentUser = state.user || apiService.getUser();
-                        if (currentUser) {
-                            const recipientId = parsedChat.participants.find((id: string) => id !== currentUser.id);
-                            if (recipientId) socketService.getPrivateChat(recipientId);
-                        }
-                    }
+                    socketService.getChatMessages(parsedChat.id);
                 }
             }
         });
@@ -358,6 +386,13 @@ export function ChatProvider({ children }: ChatProviderProps) {
         });
         socketService.onUserStatusChanged((data) => dispatch({ type: 'UPDATE_USER_STATUS', payload: data }));
         socketService.onPrivateChatLoaded(({ chat, messages, recipient }) => {
+            dispatch({ type: 'SET_CURRENT_CHAT', payload: parseChat(chat) });
+            dispatch({ type: 'SET_MESSAGES', payload: messages });
+            if (recipient) {
+                dispatch({ type: 'CACHE_USERS', payload: [recipient] });
+            }
+        });
+        socketService.onChatMessagesLoaded(({ chat, messages, recipient }) => {
             dispatch({ type: 'SET_CURRENT_CHAT', payload: parseChat(chat) });
             dispatch({ type: 'SET_MESSAGES', payload: messages });
             if (recipient) {
@@ -380,6 +415,15 @@ export function ChatProvider({ children }: ChatProviderProps) {
                 dispatch({ type: 'ADD_CHAT', payload: parsedChat });
                 if (systemMsg) dispatch({ type: 'ADD_MESSAGE', payload: systemMsg });
             }
+        });
+        socketService.onFriendRemoved((data) => {
+            dispatch({ type: 'FRIEND_REMOVED', payload: { chatId: data.chatId } });
+            if (localStorage.getItem('lastActiveChatId') === data.chatId) {
+                localStorage.removeItem('lastActiveChatId');
+            }
+        });
+        socketService.onChatCleared((data) => {
+            dispatch({ type: 'CHAT_CLEARED', payload: data });
         });
         socketService.onUserTyping(({ chatId, user }) => {
             const existing = state.typingUsers.filter(u => !(u.chatId === chatId && u.userId === user.userId));
@@ -481,6 +525,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         };
         initializeApp();
         return () => { socketService.disconnect(); };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [dispatch]);
 
     const login = async (username: string, password: string) => {
@@ -542,13 +587,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
             markMessagesAsRead(chat.id);
             dispatch({ type: 'CLEAR_CURRENT_CHAT_UNREAD' });
             localStorage.setItem('lastActiveChatId', chat.id);
-            if (chat.type === 'private') {
-                const currentUser = apiService.getUser();
-                if (currentUser) {
-                    const recipientId = chat.participants.find(id => id !== currentUser.id);
-                    if (recipientId) socketService.getPrivateChat(recipientId);
-                }
-            }
+            socketService.getChatMessages(chat.id);
         } else {
             localStorage.removeItem('lastActiveChatId');
         }
@@ -579,6 +618,58 @@ export function ChatProvider({ children }: ChatProviderProps) {
             }
         } catch (error: any) {
             dispatch({ type: 'SET_ERROR', payload: error.message });
+            throw error;
+        } finally {
+            dispatch({ type: 'SET_LOADING', payload: false });
+        }
+    };
+
+    const removeFriend = async (friendId: string) => {
+        dispatch({ type: 'SET_ERROR', payload: null });
+        dispatch({ type: 'SET_LOADING', payload: true });
+        try {
+            const response = await socketService.removeFriend(friendId);
+            dispatch({ type: 'FRIEND_REMOVED', payload: { chatId: response.chatId } });
+            if (localStorage.getItem('lastActiveChatId') === response.chatId) {
+                localStorage.removeItem('lastActiveChatId');
+            }
+        } catch (error: any) {
+            dispatch({ type: 'SET_ERROR', payload: error.message || '删除好友失败' });
+            throw error;
+        } finally {
+            dispatch({ type: 'SET_LOADING', payload: false });
+        }
+    };
+
+    const clearChatMessages = async (chatId: string) => {
+        dispatch({ type: 'SET_ERROR', payload: null });
+        dispatch({ type: 'SET_LOADING', payload: true });
+        try {
+            await socketService.clearChatMessages(chatId);
+            dispatch({ type: 'CHAT_CLEARED', payload: { chatId } });
+        } catch (error: any) {
+            dispatch({ type: 'SET_ERROR', payload: error.message || '清空聊天记录失败' });
+            throw error;
+        } finally {
+            dispatch({ type: 'SET_LOADING', payload: false });
+        }
+    };
+
+    const createNewPigsailChat = async () => {
+        dispatch({ type: 'SET_ERROR', payload: null });
+        dispatch({ type: 'SET_LOADING', payload: true });
+        try {
+            const response = await socketService.createPigsailChat();
+            const parsedChat = parseChat(response.chat);
+            dispatch({ type: 'ADD_CHAT', payload: parsedChat });
+            // Reuse the normal chat-switch flow so unread is cleared immediately.
+            setCurrentChat(parsedChat);
+            dispatch({ type: 'SET_MESSAGES', payload: response.messages || [] });
+            if (response.recipient) {
+                dispatch({ type: 'CACHE_USERS', payload: [response.recipient] });
+            }
+        } catch (error: any) {
+            dispatch({ type: 'SET_ERROR', payload: error.message || '开启 PigSail 新对话失败' });
             throw error;
         } finally {
             dispatch({ type: 'SET_LOADING', payload: false });
@@ -632,7 +723,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         ...state,
         login, register, logout, setCurrentChat, sendMessage, markMessagesAsRead,
         createGroup, getPrivateChat, leaveGroup, typingStart, typingStop,
-        addFriend, updateUserProfile,
+        addFriend, removeFriend, clearChatMessages, createNewPigsailChat, updateUserProfile,
         getUserInfo,
         clearError
     };
