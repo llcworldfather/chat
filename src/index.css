@@ -576,10 +576,11 @@ body {
     max-width: 100%;
     word-wrap: break-word;
 
-    /* 短文本居中 */
+    /* 使用 Telegram 风格左对齐内容 */
     display: flex;
     flex-direction: column;
-    align-items: center;
+    align-items: flex-start;
+    overflow: visible;
 }
 
 /* 确保文本段落宽度自适应 */
@@ -602,7 +603,7 @@ body {
     box-shadow: 0 4px 15px rgba(165, 243, 141, 0.4);
 
     margin-left: auto;
-    align-items: center;
+    align-items: flex-start;
 }
 
 /* 发送者名字 */
@@ -635,14 +636,268 @@ body {
     opacity: 1;
 }
 
+/* Telegram-like message actions */
+.message-actions {
+    position: absolute;
+    top: -14px;
+    right: 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    opacity: 0;
+    transform: translateY(4px);
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    z-index: 4;
+}
+
+.message-actions.sent {
+    right: auto;
+    left: 8px;
+}
+
+.message-actions.visible {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+}
+
+.message-action-btn {
+    border: 1px solid rgba(209, 213, 219, 0.7);
+    background: rgba(255, 255, 255, 0.98);
+    color: #4b5563;
+    width: 24px;
+    height: 24px;
+    border-radius: 9999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+}
+
+.message-action-btn:hover {
+    background: #f8fafc;
+    color: #0f172a;
+}
+
+.reaction-picker {
+    position: absolute;
+    top: -44px;
+    right: 8px;
+    display: inline-flex;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.98);
+    border: 1px solid rgba(209, 213, 219, 0.8);
+    border-radius: 9999px;
+    padding: 4px 8px;
+    box-shadow: 0 8px 16px rgba(15, 23, 42, 0.12);
+    z-index: 5;
+}
+
+.reaction-picker.sent {
+    right: auto;
+    left: 8px;
+}
+
+.reaction-picker-btn {
+    border: none;
+    background: transparent;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 2px;
+    transition: transform 0.15s ease;
+}
+
+.reaction-picker-btn:hover {
+    transform: scale(1.2);
+}
+
+.reply-preview-inline {
+    width: 100%;
+    border: none;
+    text-align: left;
+    margin-bottom: 8px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    background: rgba(241, 245, 249, 0.9);
+    border-left: 3px solid #60a5fa;
+    cursor: pointer;
+}
+
+.message-reactions-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    margin-top: 8px;
+}
+
+.message-reaction-pill {
+    padding: 2px 8px;
+    border-radius: 9999px;
+    border: 1px solid #d1d5db;
+    font-size: 12px;
+    background: rgba(255, 255, 255, 0.9);
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.message-reaction-pill.active {
+    background: #dbeafe;
+    border-color: #93c5fd;
+}
+
+.message-reaction-pill:active,
+.message-quick-reaction:active,
+.reaction-picker-btn:active,
+.message-context-emoji:active {
+    transform: scale(1.2);
+}
+
+.reaction-pop {
+    animation: reactionPop 0.24s ease-out;
+}
+
+@keyframes reactionPop {
+    0% { transform: scale(0.75); }
+    70% { transform: scale(1.2); }
+    100% { transform: scale(1); }
+}
+
+.message-quick-reaction {
+    border: none;
+    background: transparent;
+    font-size: 14px;
+    opacity: 0.7;
+    cursor: pointer;
+}
+
+.message-quick-reaction:hover {
+    opacity: 1;
+}
+
+.message-reply-btn {
+    border: none;
+    background: transparent;
+    color: #64748b;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.message-reply-btn:hover {
+    color: #2563eb;
+}
+
+.message-context-menu {
+    position: fixed;
+    z-index: 80;
+    min-width: 180px;
+    max-width: 260px;
+    background: rgba(255, 255, 255, 0.98);
+    border: 1px solid rgba(209, 213, 219, 0.9);
+    border-radius: 12px;
+    box-shadow: 0 12px 24px rgba(15, 23, 42, 0.18);
+    padding: 8px;
+    backdrop-filter: blur(8px);
+    transform: translate(-8px, -8px);
+    animation: contextMenuIn 0.16s ease;
+}
+
+@keyframes contextMenuIn {
+    from { opacity: 0; transform: translate(-8px, -3px) scale(0.97); }
+    to { opacity: 1; transform: translate(-8px, -8px) scale(1); }
+}
+
+.message-context-item {
+    width: 100%;
+    border: none;
+    background: transparent;
+    color: #1f2937;
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+}
+
+.message-context-item:hover {
+    background: #f3f4f6;
+}
+
+.message-context-item.danger {
+    color: #b91c1c;
+}
+
+.message-context-item.danger:hover {
+    background: #fee2e2;
+}
+
+.message-context-reactions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 4px 6px;
+}
+
+.message-context-emoji {
+    border: none;
+    background: #f8fafc;
+    border-radius: 9999px;
+    padding: 4px 8px;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    transition: transform 0.12s ease, background 0.2s ease;
+}
+
+.message-context-emoji:hover {
+    background: #e2e8f0;
+}
+
+.message-context-empty {
+    color: #64748b;
+    font-size: 13px;
+    padding: 8px 10px;
+}
+
 /* === 输入区域 === */
 .chat-input-container {
     padding: 20px;
     background: rgba(255,255,255,0.5);
     backdrop-filter: blur(10px);
-    display: flex; gap: 12px; align-items: center;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
     border-top: 1px solid rgba(255,255,255,0.4);
     flex-shrink: 0;
+}
+
+.chat-reply-bar {
+    width: 100%;
+    position: relative;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(209, 213, 219, 0.9);
+    border-left: 3px solid #60a5fa;
+    border-radius: 10px;
+    padding: 8px 30px 8px 10px;
+    box-shadow: 0 4px 10px rgba(15, 23, 42, 0.06);
+}
+
+.chat-reply-bar-close {
+    position: absolute;
+    right: 8px;
+    top: 6px;
+    border: none;
+    background: transparent;
+    color: #6b7280;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
 }
 
 .chat-input {
@@ -699,6 +954,12 @@ body {
     .chat-area.active { transform: translateX(0); }
 
     .mobile-back { display: block; }
+
+    .message-actions {
+        opacity: 1;
+        transform: translateY(0);
+        pointer-events: auto;
+    }
 }
 
 /* --- 弹窗与按钮 --- */

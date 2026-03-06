@@ -39,9 +39,11 @@ type ChatAction =
     | { type: 'SET_CURRENT_USER'; payload: SocketUser }
     | { type: 'SET_CHATS'; payload: Chat[] }
     | { type: 'ADD_CHAT'; payload: Chat }
+    | { type: 'UPDATE_CHAT'; payload: Chat }
     | { type: 'SET_CURRENT_CHAT'; payload: Chat | null }
     | { type: 'SET_MESSAGES'; payload: Message[] }
     | { type: 'ADD_MESSAGE'; payload: Message }
+    | { type: 'UPDATE_MESSAGE'; payload: Message }
     | { type: 'SET_ONLINE_USERS'; payload: SocketUser[] }
     | { type: 'UPDATE_USER_STATUS'; payload: { userId: string; status: string } }
     | { type: 'UPDATE_ONLINE_USER'; payload: SocketUser }
@@ -69,6 +71,11 @@ const parseChat = (chat: any): Chat => {
         unreadCounts: new Map(Object.entries(chat.unreadCounts || {}))
     };
 };
+
+const normalizeMessage = (message: Message): Message => ({
+    ...message,
+    reactions: message.reactions || {}
+});
 
 const loadCache = (): Map<string, User> => {
     try {
@@ -114,10 +121,20 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
             const newChat = action.payload;
             if (state.chats.some(c => c.id === newChat.id)) return state;
             return { ...state, chats: [newChat, ...state.chats] };
+        case 'UPDATE_CHAT': {
+            const updatedChat = action.payload;
+            const exists = state.chats.some(c => c.id === updatedChat.id);
+            const chats = exists
+                ? state.chats.map(c => c.id === updatedChat.id ? updatedChat : c)
+                : [updatedChat, ...state.chats];
+            const currentChat = state.currentChat?.id === updatedChat.id ? updatedChat : state.currentChat;
+            return { ...state, chats, currentChat };
+        }
         case 'SET_CURRENT_CHAT': return { ...state, currentChat: action.payload, messages: [] };
-        case 'SET_MESSAGES': return { ...state, messages: action.payload };
+        case 'SET_MESSAGES':
+            return { ...state, messages: action.payload.map(normalizeMessage) };
         case 'ADD_MESSAGE': {
-            const newMessage = action.payload;
+            const newMessage = normalizeMessage(action.payload);
 
             // [修改] 增加去重逻辑
             if (state.messages.some(msg => msg.id === newMessage.id)) {
@@ -144,6 +161,16 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
                 ...state,
                 chats: newChats,
                 messages: isCurrentChat ? [...state.messages, newMessage] : state.messages,
+            };
+        }
+        case 'UPDATE_MESSAGE': {
+            const updatedMessage = normalizeMessage(action.payload);
+            const hasMessage = state.messages.some(msg => msg.id === updatedMessage.id);
+            if (!hasMessage) return state;
+
+            return {
+                ...state,
+                messages: state.messages.map(msg => msg.id === updatedMessage.id ? updatedMessage : msg)
             };
         }
         case 'SET_ONLINE_USERS': return { ...state, onlineUsers: action.payload };
@@ -193,7 +220,17 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
             const updatedChatsAfterLeave = state.chats.map(chat =>
                 chat.id === leftChatId ? { ...chat, participants: chat.participants.filter(id => id !== leftUserId) } : chat
             );
-            return { ...state, chats: updatedChatsAfterLeave, currentChat: state.currentChat?.id === leftChatId ? null : state.currentChat };
+            return {
+                ...state,
+                chats: updatedChatsAfterLeave,
+                currentChat: state.currentChat?.id === leftChatId
+                    ? (
+                        state.user?.id === leftUserId
+                            ? null
+                            : { ...state.currentChat, participants: state.currentChat.participants.filter(id => id !== leftUserId) }
+                    )
+                    : state.currentChat
+            };
         case 'REMOVE_CHAT': {
             const filteredChats = state.chats.filter(chat => chat.id !== action.payload);
             const removedCurrent = state.currentChat?.id === action.payload;
@@ -250,7 +287,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
             return { ...state, userCache: newCache };
         }
         case 'AI_STREAM_START': {
-            const placeholder = { ...action.payload, isStreaming: true };
+            const placeholder = { ...normalizeMessage(action.payload), isStreaming: true };
             const isCurrentChat = state.currentChat?.id === placeholder.chatId;
             if (!isCurrentChat) return state;
             // Avoid duplicate if somehow the event fires twice
@@ -265,7 +302,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
             return { ...state, messages: updated };
         }
         case 'AI_STREAM_END': {
-            const finalMsg = action.payload;
+            const finalMsg = normalizeMessage(action.payload);
             // Replace streaming placeholder with the finalized message
             const finalized = state.messages.map(m =>
                 m.id === finalMsg.id ? { ...finalMsg, isStreaming: false } : m
@@ -442,7 +479,12 @@ export function ChatProvider({ children }: ChatProviderProps) {
             dispatch({ type: 'ADD_CHAT', payload: parsedChat });
             setCurrentChat(parsedChat);
         });
+        socketService.onGroupProfileUpdated((chat) => {
+            dispatch({ type: 'UPDATE_CHAT', payload: parseChat(chat) });
+        });
         socketService.onNewMessage((message) => dispatch({ type: 'ADD_MESSAGE', payload: message }));
+        socketService.onMessageReactionUpdated((message) => dispatch({ type: 'UPDATE_MESSAGE', payload: message }));
+        socketService.onMessageDeleted((message) => dispatch({ type: 'UPDATE_MESSAGE', payload: message }));
         socketService.onMessagesRead((data) => dispatch({ type: 'MARK_MESSAGES_READ', payload: data }));
         socketService.onFriendAdded((data: any) => {
             const chatData = data.chat || data;
@@ -645,12 +687,32 @@ export function ChatProvider({ children }: ChatProviderProps) {
         }
     };
 
-    const sendMessage = (chatId: string, content: string, type = 'text') => {
-        if (content.trim()) socketService.sendMessage(chatId, content.trim(), type);
+    const sendMessage = (chatId: string, content: string, type = 'text', replyToId?: string) => {
+        if (content.trim()) socketService.sendMessage(chatId, content.trim(), type, replyToId);
+    };
+
+    const toggleMessageReaction = (chatId: string, messageId: string, emoji: string) => {
+        socketService.toggleReaction(chatId, messageId, emoji);
+    };
+
+    const deleteMessage = (chatId: string, messageId: string) => {
+        socketService.deleteMessage(chatId, messageId);
     };
 
     const markMessagesAsRead = (chatId: string) => socketService.markMessagesRead(chatId);
     const createGroup = (groupData: CreateGroupData) => socketService.createGroup(groupData);
+    const addGroupMembers = async (chatId: string, memberIds: string[]) => {
+        dispatch({ type: 'SET_ERROR', payload: null });
+        await socketService.addGroupMembers(chatId, memberIds);
+    };
+    const removeGroupMember = async (chatId: string, memberId: string) => {
+        dispatch({ type: 'SET_ERROR', payload: null });
+        await socketService.removeGroupMember(chatId, memberId);
+    };
+    const updateGroupProfile = async (chatId: string, data: { name?: string; avatar?: string }) => {
+        dispatch({ type: 'SET_ERROR', payload: null });
+        await socketService.updateGroupProfile(chatId, data);
+    };
     const getPrivateChat = (recipientId: string) => socketService.getPrivateChat(recipientId);
     const leaveGroup = (chatId: string) => socketService.leaveGroup(chatId);
     const typingStart = (chatId: string) => socketService.typingStart(chatId);
@@ -812,8 +874,9 @@ export function ChatProvider({ children }: ChatProviderProps) {
     const contextValue: ChatContextTypeExtended = {
         ...state,
         login, register, logout, setCurrentChat, sendMessage, markMessagesAsRead,
-        createGroup, getPrivateChat, leaveGroup, typingStart, typingStop,
+        createGroup, addGroupMembers, removeGroupMember, updateGroupProfile, getPrivateChat, leaveGroup, typingStart, typingStop,
         addFriend, loadFriendRequests, loadSentFriendRequests, handleFriendRequest, removeFriend, clearChatMessages, createNewPigsailChat, updateUserProfile,
+        toggleMessageReaction, deleteMessage,
         getUserInfo,
         clearError
     };

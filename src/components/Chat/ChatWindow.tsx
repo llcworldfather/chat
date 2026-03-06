@@ -7,10 +7,15 @@ import {
     Phone,
     Video,
     Users,
-    MessageCircle
+    MessageCircle,
+    CornerUpLeft,
+    SmilePlus,
+    Trash2,
+    Copy
 } from 'lucide-react';
 import { useChat } from '../../context/ChatContext';
 import { formatDateTime, formatMessageDate } from '../../utils/timeUtils';
+import { Message } from '../../types';
 
 export function ChatWindow() {
     const {
@@ -18,6 +23,8 @@ export function ChatWindow() {
         currentChat,
         messages,
         sendMessage,
+        toggleMessageReaction,
+        deleteMessage,
         typingStart,
         typingStop,
         typingUsers,
@@ -27,13 +34,86 @@ export function ChatWindow() {
 
     const [messageInput, setMessageInput] = useState('');
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+    const [replyTarget, setReplyTarget] = useState<Message | null>(null);
+    const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null);
+    const [reactionPickerForId, setReactionPickerForId] = useState<string | null>(null);
+    const [contextMenu, setContextMenu] = useState<{ message?: Message; x: number; y: number } | null>(null);
+    const [animatedReactionKey, setAnimatedReactionKey] = useState<string | null>(null);
+    const messagesAreaRef = useRef<HTMLDivElement>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const typingTimeoutRef = useRef<number | undefined>(undefined);
+    const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+    const longPressTimerRef = useRef<number | undefined>(undefined);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages, typingUsers]); // typingUsers 变化时也滚动
+
+    useEffect(() => {
+        (window as any).__chatContextMenuFix = 'v5-mousedown-capture';
+    }, []);
+
+    useEffect(() => {
+        const handleClickOutsideMenu = (e: PointerEvent) => {
+            if (e.button !== 0) return;
+            const target = e.target as HTMLElement | null;
+            if (target?.closest('.message-context-menu')) return;
+            setContextMenu(null);
+        };
+        const handleEsc = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setContextMenu(null);
+        };
+        window.addEventListener('pointerdown', handleClickOutsideMenu);
+        window.addEventListener('keydown', handleEsc);
+        return () => {
+            window.removeEventListener('pointerdown', handleClickOutsideMenu);
+            window.removeEventListener('keydown', handleEsc);
+        };
+    }, []);
+
+    useEffect(() => {
+        const handleContextMenuInsideChat = (e: MouseEvent): boolean => {
+            const area = messagesAreaRef.current;
+            const target = e.target as HTMLElement | null;
+            if (!area || !target) return false;
+            if (!area.contains(target)) return false;
+
+            e.preventDefault();
+            e.stopPropagation();
+
+            const messageEl = target.closest('[data-message-id]') as HTMLElement | null;
+            const messageId = messageEl?.dataset.messageId;
+            const message = messageId ? messages.find((msg) => msg.id === messageId) : undefined;
+            if (message && message.type !== 'system') {
+                openMessageMenu(message, e.clientX, e.clientY);
+            } else {
+                setContextMenu({ x: e.clientX, y: e.clientY });
+            }
+            return true;
+        };
+
+        const previousOnContextMenu = window.oncontextmenu;
+        const windowContextMenuHandler = (e: globalThis.MouseEvent) => {
+            const handled = handleContextMenuInsideChat(e as unknown as MouseEvent);
+            if (handled) return false;
+            if (previousOnContextMenu) {
+                return previousOnContextMenu.call(window, e);
+            }
+            return undefined;
+        };
+
+        const docCaptureHandler = (e: MouseEvent) => {
+            handleContextMenuInsideChat(e);
+        };
+
+        window.oncontextmenu = windowContextMenuHandler;
+        document.addEventListener('contextmenu', docCaptureHandler, true);
+        return () => {
+            window.oncontextmenu = previousOnContextMenu;
+            document.removeEventListener('contextmenu', docCaptureHandler, true);
+        };
+    }, [messages]);
 
     // 获取当前聊天的显示信息（头像、标题等）
     const getChatInfo = () => {
@@ -84,8 +164,9 @@ export function ChatWindow() {
     const handleSendMessage = (e: React.FormEvent) => {
         e.preventDefault();
         if (messageInput.trim() && currentChat) {
-            sendMessage(currentChat.id, messageInput.trim());
+            sendMessage(currentChat.id, messageInput.trim(), 'text', replyTarget?.id);
             setMessageInput('');
+            setReplyTarget(null);
             if (typingTimeoutRef.current) {
                 clearTimeout(typingTimeoutRef.current);
                 typingTimeoutRef.current = undefined;
@@ -101,6 +182,62 @@ export function ChatWindow() {
     };
 
     const isOwnMessage = (message: any) => message.senderId === user?.id;
+    const getReplyMessage = (message: Message) =>
+        message.replyToId ? messages.find(m => m.id === message.replyToId) : undefined;
+    const hasReacted = (message: Message, emoji: string) =>
+        !!user?.id && (message.reactions?.[emoji] || []).includes(user.id);
+    const messageQuickReactions = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+    const triggerReactionAnimation = (messageId: string, emoji: string) => {
+        const key = `${messageId}-${emoji}`;
+        setAnimatedReactionKey(key);
+        window.setTimeout(() => {
+            setAnimatedReactionKey((prev) => (prev === key ? null : prev));
+        }, 260);
+    };
+    const openMessageMenu = (message: Message, clientX: number, clientY: number) => {
+        setContextMenu({ message, x: clientX, y: clientY });
+        setReactionPickerForId(null);
+    };
+    const startLongPressMenu = (message: Message, touch: React.Touch) => {
+        if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = window.setTimeout(() => {
+            openMessageMenu(message, touch.clientX, touch.clientY);
+        }, 420);
+    };
+    const clearLongPressMenu = () => {
+        if (longPressTimerRef.current) {
+            window.clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = undefined;
+        }
+    };
+    const copyMessageContent = async (message: Message) => {
+        try {
+            await navigator.clipboard.writeText(message.content || '');
+        } catch {
+            // fallback for restricted clipboard environments
+            const textArea = document.createElement('textarea');
+            textArea.value = message.content || '';
+            textArea.style.position = 'fixed';
+            textArea.style.opacity = '0';
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+        }
+    };
+    const openContextMenuFromTarget = (target: EventTarget | null, x: number, y: number) => {
+        const element = target as HTMLElement | null;
+        const messageEl = element?.closest('[data-message-id]') as HTMLElement | null;
+        const messageId = messageEl?.dataset.messageId;
+        const message = messageId ? messages.find((msg) => msg.id === messageId) : undefined;
+
+        if (message && message.type !== 'system') {
+            openMessageMenu(message, x, y);
+        } else {
+            setContextMenu({ x, y });
+        }
+    };
 
     const groupMessagesByDate = (messages: any[]) => {
         const groups: { [date: string]: any[] } = {};
@@ -130,7 +267,20 @@ export function ChatWindow() {
     }
 
     return (
-        <div className="flex-1 flex flex-col relative">
+        <div
+            className="flex-1 flex flex-col relative"
+            onMouseDownCapture={(e) => {
+                if (e.button !== 2) return;
+                e.preventDefault();
+                e.stopPropagation();
+                openContextMenuFromTarget(e.target, e.clientX, e.clientY);
+            }}
+            onContextMenuCapture={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                openContextMenuFromTarget(e.target, e.clientX, e.clientY);
+            }}
+        >
             {/* Header */}
             <div className="chat-header">
                 <div className="flex items-center gap-3">
@@ -167,7 +317,7 @@ export function ChatWindow() {
             </div>
 
             {/* Messages Area */}
-            <div className="chat-messages" id="messageArea">
+            <div ref={messagesAreaRef} className="chat-messages" id="messageArea">
                 {Object.entries(messageGroups).map(([date, dateMessages]) => (
                     <React.Fragment key={date}>
                         <div className="flex items-center justify-center my-2">
@@ -196,7 +346,26 @@ export function ChatWindow() {
                             }
 
                             return (
-                                <div key={message.id} className={`message ${isOwn ? 'sent' : ''}`}>
+                                <div
+                                    key={message.id}
+                                    data-message-id={message.id}
+                                    className={`message ${isOwn ? 'sent' : ''}`}
+                                    onTouchStart={(e) => startLongPressMenu(message, e.touches[0])}
+                                    onTouchMove={clearLongPressMenu}
+                                    onTouchEnd={clearLongPressMenu}
+                                    onMouseEnter={() => setHoveredMessageId(message.id)}
+                                    onMouseLeave={() => {
+                                        setHoveredMessageId((prev) => prev === message.id ? null : prev);
+                                        setReactionPickerForId((prev) => prev === message.id ? null : prev);
+                                    }}
+                                    ref={(el) => {
+                                        if (el) {
+                                            messageRefs.current.set(message.id, el);
+                                        } else {
+                                            messageRefs.current.delete(message.id);
+                                        }
+                                    }}
+                                >
                                     {message.type === 'system' ? (
                                         <div className="w-full text-center my-2">
                                             <span className="text-xs text-gray-500 italic bg-gray-100 px-3 py-1 rounded-full">
@@ -220,6 +389,46 @@ export function ChatWindow() {
 
                                             {/* 消息内容气泡 */}
                                             <div className="message-content">
+                                                <div className={`message-actions ${hoveredMessageId === message.id ? 'visible' : ''} ${isOwn ? 'sent' : ''}`}>
+                                                    <button
+                                                        type="button"
+                                                        className="message-action-btn"
+                                                        onClick={() => setReplyTarget(message)}
+                                                        title="回复"
+                                                    >
+                                                        <CornerUpLeft className="w-3.5 h-3.5" />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        className="message-action-btn"
+                                                        onClick={() => setReactionPickerForId(prev => prev === message.id ? null : message.id)}
+                                                        title="回应"
+                                                    >
+                                                        <SmilePlus className="w-3.5 h-3.5" />
+                                                    </button>
+                                                </div>
+
+                                                {reactionPickerForId === message.id && (
+                                                    <div className={`reaction-picker ${isOwn ? 'sent' : ''}`}>
+                                                        {messageQuickReactions.map((emoji) => (
+                                                            <button
+                                                                key={`${message.id}-picker-${emoji}`}
+                                                                type="button"
+                                                                className="reaction-picker-btn"
+                                                                onClick={() => {
+                                                                    if (currentChat) {
+                                                                        triggerReactionAnimation(message.id, emoji);
+                                                                        toggleMessageReaction(currentChat.id, message.id, emoji);
+                                                                    }
+                                                                    setReactionPickerForId(null);
+                                                                }}
+                                                            >
+                                                                {emoji}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                )}
+
                                                 {/* 群组中在对方消息上方显示名字 */}
                                                 {currentChat.type === 'group' && !isOwn && (
                                                     <div className="text-xs font-bold text-gray-500 mb-1 opacity-80">
@@ -227,19 +436,85 @@ export function ChatWindow() {
                                                     </div>
                                                 )}
 
-                                <p style={{ wordBreak: 'break-word' }}>
-                                    {message.content}
-                                    {message.isStreaming && (
-                                        <span
-                                            className="inline-block w-0.5 h-4 bg-current ml-0.5 align-middle"
-                                            style={{ animation: 'blink 0.8s step-start infinite' }}
-                                        />
-                                    )}
-                                </p>
+                                                {(() => {
+                                                    const replyMessage = getReplyMessage(message);
+                                                    if (!replyMessage) return null;
+                                                    const replySender = getUserInfo(replyMessage.senderId);
+                                                    return (
+                                                        <button
+                                                            type="button"
+                                                            className="reply-preview-inline"
+                                                            onClick={() => {
+                                                                const target = messageRefs.current.get(replyMessage.id);
+                                                                if (target) {
+                                                                    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                                                }
+                                                            }}
+                                                        >
+                                                            <div className="font-semibold text-gray-600">
+                                                                {replySender?.displayName || replySender?.username || '未知用户'}
+                                                            </div>
+                                                            <div className="text-gray-500 truncate">
+                                                                {replyMessage.content}
+                                                            </div>
+                                                        </button>
+                                                    );
+                                                })()}
 
-                                <span className="message-time">
-                                    {message.isStreaming ? '正在输入…' : formatDateTime(new Date(message.timestamp))}
-                                </span>
+                                                <p style={{ wordBreak: 'break-word' }}>
+                                                    {message.content}
+                                                    {message.isStreaming && (
+                                                        <span
+                                                            className="inline-block w-0.5 h-4 bg-current ml-0.5 align-middle"
+                                                            style={{ animation: 'blink 0.8s step-start infinite' }}
+                                                        />
+                                                    )}
+                                                </p>
+
+                                                <span className="message-time">
+                                                    {message.isStreaming ? '正在输入…' : formatDateTime(new Date(message.timestamp))}
+                                                </span>
+
+                                                <div className="message-reactions-row">
+                                                    {Object.entries(message.reactions || {}).map(([emoji, userIds]) => (
+                                                        <button
+                                                            key={`${message.id}-${emoji}`}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                if (currentChat) {
+                                                                    triggerReactionAnimation(message.id, emoji);
+                                                                    toggleMessageReaction(currentChat.id, message.id, emoji);
+                                                                }
+                                                            }}
+                                                            className={`message-reaction-pill ${hasReacted(message, emoji) ? 'active' : ''} ${animatedReactionKey === `${message.id}-${emoji}` ? 'reaction-pop' : ''}`}
+                                                        >
+                                                            {emoji} {(userIds as string[]).length}
+                                                        </button>
+                                                    ))}
+                                                    {['👍', '😂', '❤️'].map((emoji) => (
+                                                        <button
+                                                            key={`${message.id}-quick-${emoji}`}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                if (currentChat) {
+                                                                    triggerReactionAnimation(message.id, emoji);
+                                                                    toggleMessageReaction(currentChat.id, message.id, emoji);
+                                                                }
+                                                            }}
+                                                            className="message-quick-reaction"
+                                                            title={`用 ${emoji} 回应`}
+                                                        >
+                                                            {emoji}
+                                                        </button>
+                                                    ))}
+                                                    <button
+                                                        type="button"
+                                                        className="message-reply-btn"
+                                                        onClick={() => setReplyTarget(message)}
+                                                    >
+                                                        回复
+                                                    </button>
+                                                </div>
                                             </div>
                                         </>
                                     )}
@@ -266,8 +541,90 @@ export function ChatWindow() {
                 <div ref={messagesEndRef} />
             </div>
 
+            {contextMenu && (
+                <div
+                    className="message-context-menu"
+                    style={{ left: contextMenu.x, top: contextMenu.y }}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    {contextMenu.message ? (
+                        <>
+                            <button
+                                type="button"
+                                className="message-context-item"
+                                onClick={() => {
+                                    setReplyTarget(contextMenu.message!);
+                                    setContextMenu(null);
+                                }}
+                            >
+                                <CornerUpLeft className="w-4 h-4" /> 回复
+                            </button>
+                            <button
+                                type="button"
+                                className="message-context-item"
+                                onClick={async () => {
+                                    await copyMessageContent(contextMenu.message!);
+                                    setContextMenu(null);
+                                }}
+                            >
+                                <Copy className="w-4 h-4" /> 复制
+                            </button>
+                            <div className="message-context-reactions">
+                                {messageQuickReactions.map((emoji) => (
+                                    <button
+                                        key={`context-${contextMenu.message!.id}-${emoji}`}
+                                        type="button"
+                                        className="message-context-emoji"
+                                        onClick={() => {
+                                            if (currentChat) {
+                                                triggerReactionAnimation(contextMenu.message!.id, emoji);
+                                                toggleMessageReaction(currentChat.id, contextMenu.message!.id, emoji);
+                                            }
+                                            setContextMenu(null);
+                                        }}
+                                    >
+                                        {emoji}
+                                    </button>
+                                ))}
+                            </div>
+                            {contextMenu.message.senderId === user?.id && (
+                                <button
+                                    type="button"
+                                    className="message-context-item danger"
+                                    onClick={() => {
+                                        if (currentChat) {
+                                            deleteMessage(currentChat.id, contextMenu.message!.id);
+                                        }
+                                        setContextMenu(null);
+                                    }}
+                                >
+                                    <Trash2 className="w-4 h-4" /> 删除
+                                </button>
+                            )}
+                        </>
+                    ) : (
+                        <div className="message-context-empty">请在消息上右键查看完整菜单</div>
+                    )}
+                </div>
+            )}
+
             {/* Input Area */}
             <div className="chat-input-container">
+                {replyTarget && (
+                    <div className="chat-reply-bar">
+                        <div className="text-xs text-gray-500 mb-1">
+                            回复 {getUserInfo(replyTarget.senderId)?.displayName || getUserInfo(replyTarget.senderId)?.username || '未知用户'}
+                        </div>
+                        <div className="text-sm text-gray-700 truncate">{replyTarget.content}</div>
+                        <button
+                            type="button"
+                            className="chat-reply-bar-close"
+                            onClick={() => setReplyTarget(null)}
+                        >
+                            ×
+                        </button>
+                    </div>
+                )}
                 {showEmojiPicker && (
                     <div className="absolute bottom-20 left-4 bg-white/90 backdrop-blur-md p-3 rounded-2xl shadow-xl border border-gray-200 z-50">
                         <div className="grid grid-cols-5 gap-2">

@@ -118,8 +118,20 @@ class SocketService {
         this.socket?.on('group_created_success', callback);
     }
 
+    onGroupProfileUpdated(callback: (chat: Chat) => void): void {
+        this.socket?.on('group_profile_updated', callback);
+    }
+
     onNewMessage(callback: (message: Message) => void): void {
         this.socket?.on('new_message', callback);
+    }
+
+    onMessageReactionUpdated(callback: (message: Message) => void): void {
+        this.socket?.on('message_reaction_updated', callback);
+    }
+
+    onMessageDeleted(callback: (message: Message) => void): void {
+        this.socket?.on('message_deleted', callback);
     }
 
     onMessagesRead(callback: (data: { chatId: string; userId: string }) => void): void {
@@ -193,6 +205,19 @@ class SocketService {
         this.socket?.on('ai_stream_end', callback);
     }
 
+    onMentionedInChat(callback: (data: {
+        chatId: string;
+        messageId: string;
+        fromUserId: string;
+        fromDisplayName: string;
+        fromUsername: string;
+        chatName: string;
+        contentPreview: string;
+        timestamp: Date;
+    }) => void): void {
+        this.socket?.on('mentioned_in_chat', callback);
+    }
+
     // Remove event listeners
     off(event: string, callback?: Function): void {
         if (callback) {
@@ -236,8 +261,64 @@ class SocketService {
         this.socket?.emit('create_group', groupData);
     }
 
-    sendMessage(chatId: string, content: string, type?: string): void {
-        this.socket?.emit('send_message', { chatId, content, type });
+    addGroupMembers(chatId: string, memberIds: string[]): Promise<{ success: boolean; chat: Chat; addedMemberIds: string[] }> {
+        return new Promise((resolve, reject) => {
+            if (!this.socket) {
+                reject(new Error('Socket not connected'));
+                return;
+            }
+            this.socket.emit('add_group_members', { chatId, memberIds }, (response: any) => {
+                if (!response || response.error) {
+                    reject(new Error(response?.error || '添加群成员失败'));
+                    return;
+                }
+                resolve(response);
+            });
+        });
+    }
+
+    removeGroupMember(chatId: string, memberId: string): Promise<{ success: boolean; chat: Chat; removedMemberId: string }> {
+        return new Promise((resolve, reject) => {
+            if (!this.socket) {
+                reject(new Error('Socket not connected'));
+                return;
+            }
+            this.socket.emit('remove_group_member', { chatId, memberId }, (response: any) => {
+                if (!response || response.error) {
+                    reject(new Error(response?.error || '移除群成员失败'));
+                    return;
+                }
+                resolve(response);
+            });
+        });
+    }
+
+    updateGroupProfile(chatId: string, data: { name?: string; avatar?: string }): Promise<{ success: boolean; chat: Chat }> {
+        return new Promise((resolve, reject) => {
+            if (!this.socket) {
+                reject(new Error('Socket not connected'));
+                return;
+            }
+            this.socket.emit('update_group_profile', { chatId, ...data }, (response: any) => {
+                if (!response || response.error) {
+                    reject(new Error(response?.error || '更新群资料失败'));
+                    return;
+                }
+                resolve(response);
+            });
+        });
+    }
+
+    sendMessage(chatId: string, content: string, type?: string, replyToId?: string): void {
+        this.socket?.emit('send_message', { chatId, content, type, replyToId });
+    }
+
+    toggleReaction(chatId: string, messageId: string, emoji: string): void {
+        this.socket?.emit('toggle_reaction', { chatId, messageId, emoji });
+    }
+
+    deleteMessage(chatId: string, messageId: string): void {
+        this.socket?.emit('delete_message', { chatId, messageId });
     }
 
     // 支持 Promise 回调

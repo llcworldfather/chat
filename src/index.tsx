@@ -5,6 +5,9 @@ import App from './App';
 import { ChatProvider } from './context/ChatContext';
 import reportWebVitals from './reportWebVitals';
 
+// Runtime build marker for debugging "which frontend is running"
+(window as any).__chatBuildTag = 'chat-app-client-v6';
+
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement
 );

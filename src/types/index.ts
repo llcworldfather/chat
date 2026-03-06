@@ -19,6 +19,8 @@ export interface Message {
     readBy: string[];
     isEdited: boolean;
     editedAt?: Date;
+    replyToId?: string;
+    reactions: Record<string, string[]>;
     isStreaming?: boolean;   // true while the AI is still writing
 }
 
@@ -115,9 +117,14 @@ export interface ChatContextType {
     register: (userData: RegisterRequest) => Promise<void>;
     logout: () => void;
     setCurrentChat: (chat: Chat | null) => void;
-    sendMessage: (chatId: string, content: string, type?: string) => void;
+    sendMessage: (chatId: string, content: string, type?: string, replyToId?: string) => void;
+    toggleMessageReaction: (chatId: string, messageId: string, emoji: string) => void;
+    deleteMessage: (chatId: string, messageId: string) => void;
     markMessagesAsRead: (chatId: string) => void;
     createGroup: (groupData: CreateGroupData) => void;
+    addGroupMembers: (chatId: string, memberIds: string[]) => Promise<void>;
+    removeGroupMember: (chatId: string, memberId: string) => Promise<void>;
+    updateGroupProfile: (chatId: string, data: { name?: string; avatar?: string }) => Promise<void>;
     getPrivateChat: (recipientId: string) => void;
     leaveGroup: (chatId: string) => void;
     typingStart: (chatId: string) => void;
