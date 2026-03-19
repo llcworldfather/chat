@@ -116,7 +116,7 @@ export interface ChatContextType {
     login: (username: string, password: string) => Promise<void>;
     register: (userData: RegisterRequest) => Promise<void>;
     logout: () => void;
-    setCurrentChat: (chat: Chat | null) => void;
+    setCurrentChat: (chat: Chat | null, options?: { aroundMessageId?: string }) => void;
     sendMessage: (chatId: string, content: string, type?: string, replyToId?: string) => void;
     toggleMessageReaction: (chatId: string, messageId: string, emoji: string) => void;
     deleteMessage: (chatId: string, messageId: string) => void;

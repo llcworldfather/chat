@@ -232,8 +232,26 @@ class SocketService {
         this.socket?.emit('get_private_chat', recipientId);
     }
 
-    getChatMessages(chatId: string): void {
-        this.socket?.emit('get_chat_messages', chatId);
+    getChatMessages(chatId: string, aroundMessageId?: string): void {
+        const payload = { chatId, aroundMessageId: aroundMessageId || undefined };
+        console.log('[Socket] getChatMessages 发送:', payload);
+        this.socket?.emit('get_chat_messages', payload);
+    }
+
+    searchMessagesGlobal(query: string): Promise<Array<{ chatId: string; chatName: string; messages: Message[] }>> {
+        return new Promise((resolve, reject) => {
+            if (!this.socket) {
+                reject(new Error('Socket not connected'));
+                return;
+            }
+            this.socket.emit('search_messages_global', { query }, (response: any) => {
+                if (response?.error) {
+                    reject(new Error(response.error));
+                    return;
+                }
+                resolve(response?.data ?? []);
+            });
+        });
     }
 
     createPigsailChat(): Promise<{ chat: Chat; messages: Message[]; recipient: User | null }> {

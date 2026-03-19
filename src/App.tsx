@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { Send, ChevronLeft, LogOut, Search, UserPlus, X, AlertCircle, Settings, Camera, Lock, User as UserIcon, Save, CheckCircle, Smile, Plus, MoreHorizontal, Trash2, Eraser, UserCheck, Ban, Sparkles, Users } from 'lucide-react';
+import { Send, ChevronLeft, LogOut, Search, UserPlus, X, AlertCircle, Settings, Camera, Lock, User as UserIcon, Save, CheckCircle, Smile, Plus, MoreHorizontal, Trash2, Eraser, UserCheck, Ban, Sparkles, Users, MessageSquare } from 'lucide-react';
 import { useChat } from './context/ChatContext';
 import { socketService } from './services/socket';
 import { formatMessageDate } from './utils/timeUtils';
@@ -109,6 +109,9 @@ function App() {
     const [mentionUnreadCounts, setMentionUnreadCounts] = useState<Record<string, number>>({});
     const [mobileShowChat, setMobileShowChat] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+    const [messageSearchResults, setMessageSearchResults] = useState<Array<{ chatId: string; chatName: string; messages: any[] }>>([]);
+    const [messageSearchLoading, setMessageSearchLoading] = useState(false);
+    const [scrollToMessageId, setScrollToMessageId] = useState<string | null>(null);
     const [showAddModal, setShowAddModal] = useState(false);
     const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
     const [showRequestsModal, setShowRequestsModal] = useState(false);
@@ -153,6 +156,8 @@ function App() {
         isOwn?: boolean;
     } | null>(null);
     const [resolvedMenuPos, setResolvedMenuPos] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
+    const [bossKeyOverlayVisible, setBossKeyOverlayVisible] = useState(false);
+    const [bossKeySearchQuery, setBossKeySearchQuery] = useState('');
 
     const [username, setUsername] = useState('');
     const [displayName, setDisplayName] = useState('');
@@ -172,8 +177,20 @@ function App() {
     const messageContextMenuRef = useRef<HTMLDivElement>(null);
     const chatAreaRef = useRef<HTMLDivElement>(null);
     const handledMentionMessageIdsRef = useRef<Set<string>>(new Set());
+    const lastSearchScrollAtRef = useRef<number>(0);
+    const lastSearchScrollChatIdRef = useRef<string | null>(null);
 
-    useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, currentChat, typingUsers]);
+    // 切换会话时清除「搜索跳转后的静态样式」标记，避免影响新会话的动画
+    useEffect(() => {
+        lastSearchScrollChatIdRef.current = null;
+    }, [currentChat?.id]);
+
+    // 有新消息时滚到底部，但搜索跳转场景跳过（含刚完成跳转后的短暂冷却，避免被拉回底部）
+    useEffect(() => {
+        if (scrollToMessageId) return;
+        if (Date.now() - lastSearchScrollAtRef.current < 2000) return;
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [messages, currentChat, typingUsers, scrollToMessageId]);
 
     useEffect(() => {
         setMentionSuggestions([]);
@@ -323,6 +340,81 @@ function App() {
         (window as any).__chatContextMenuFix = 'app-v1';
     }, []);
 
+    // 搜索跳转：滚动到目标消息并高亮
+    useLayoutEffect(() => {
+        if (!scrollToMessageId || !currentChat?.id) return;
+        const hasTarget = messages.some((m: any) => m.id === scrollToMessageId);
+        if (!hasTarget) return;
+
+        const id = scrollToMessageId;
+        const MAX_RETRIES = 12;
+        let retryCount = 0;
+        let rafId = 0;
+        let timeoutId = 0;
+
+        const tryScrollAndHighlight = () => {
+            const container = chatAreaRef.current ?? document.getElementById('messageArea');
+            const el = container?.querySelector(`[data-message-id="${id}"]`) ?? document.querySelector(`[data-message-id="${id}"]`);
+            if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                el.classList.add('message-scroll-highlight');
+                (el as HTMLElement).style.setProperty('box-shadow', '0 0 0 4px rgba(255, 180, 0, 0.9)');
+                (el as HTMLElement).style.setProperty('background', 'rgba(255, 230, 100, 0.35)');
+                (el as HTMLElement).style.setProperty('border-radius', '12px');
+                timeoutId = window.setTimeout(() => {
+                    el.classList.remove('message-scroll-highlight');
+                    (el as HTMLElement).style.removeProperty('box-shadow');
+                    (el as HTMLElement).style.removeProperty('background');
+                    (el as HTMLElement).style.removeProperty('border-radius');
+                    lastSearchScrollAtRef.current = Date.now();
+                    lastSearchScrollChatIdRef.current = currentChat?.id ?? null;
+                    setScrollToMessageId(null);
+                }, 2500);
+                return;
+            }
+            retryCount++;
+            if (retryCount < MAX_RETRIES) {
+                rafId = requestAnimationFrame(tryScrollAndHighlight);
+            } else {
+                // rAF 可能时机仍过早，再尝试一次 setTimeout 延迟
+                timeoutId = window.setTimeout(() => {
+                    const container = chatAreaRef.current ?? document.getElementById('messageArea');
+                    const finalEl = container?.querySelector(`[data-message-id="${id}"]`) ?? document.querySelector(`[data-message-id="${id}"]`);
+                    if (finalEl) {
+                        finalEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        finalEl.classList.add('message-scroll-highlight');
+                        (finalEl as HTMLElement).style.setProperty('box-shadow', '0 0 0 4px rgba(255, 180, 0, 0.9)');
+                        (finalEl as HTMLElement).style.setProperty('background', 'rgba(255, 230, 100, 0.35)');
+                        (finalEl as HTMLElement).style.setProperty('border-radius', '12px');
+                        window.setTimeout(() => {
+                            finalEl.classList.remove('message-scroll-highlight');
+                            (finalEl as HTMLElement).style.removeProperty('box-shadow');
+                            (finalEl as HTMLElement).style.removeProperty('background');
+                            (finalEl as HTMLElement).style.removeProperty('border-radius');
+                            lastSearchScrollAtRef.current = Date.now();
+                            lastSearchScrollChatIdRef.current = currentChat?.id ?? null;
+                            setScrollToMessageId(null);
+                        }, 2500);
+                    } else {
+                        if (process.env.NODE_ENV === 'development') {
+                            console.warn('[Scroll] 未找到目标消息 DOM 元素，已重试', MAX_RETRIES, '+ 1 次:', id);
+                        }
+                        lastSearchScrollAtRef.current = Date.now();
+                        lastSearchScrollChatIdRef.current = currentChat?.id ?? null;
+                        setScrollToMessageId(null);
+                    }
+                }, 200);
+            }
+        };
+        // 双 rAF 确保 DOM 已完全提交后再查找
+        rafId = requestAnimationFrame(() => requestAnimationFrame(tryScrollAndHighlight));
+
+        return () => {
+            cancelAnimationFrame(rafId);
+            if (timeoutId) clearTimeout(timeoutId);
+        };
+    }, [messages, currentChat?.id, scrollToMessageId]);
+
     useEffect(() => {
         const closeMenu = (event: MouseEvent) => {
             const target = event.target as HTMLElement;
@@ -362,6 +454,51 @@ function App() {
             document.removeEventListener("mousedown", handleClickOutside);
         };
     }, [showEmojiPicker]);
+
+    // 老板键：ESC 切换显示 Google 覆盖层
+    useEffect(() => {
+        const handleBossKey = (e: KeyboardEvent) => {
+            if (e.key !== 'Escape') return;
+            setBossKeyOverlayVisible((prev) => !prev);
+        };
+        window.addEventListener('keydown', handleBossKey);
+        return () => window.removeEventListener('keydown', handleBossKey);
+    }, []);
+
+    // 老板键显示时同步标签页标题和 favicon，隐藏时恢复
+    useEffect(() => {
+        if (!bossKeyOverlayVisible) return;
+        const origTitle = document.title;
+        const link = document.querySelector('link[rel="icon"]') as HTMLLinkElement | null;
+        const origFavicon = link?.href ?? '';
+        document.title = 'Google';
+        if (link) link.href = 'https://www.google.com/favicon.ico';
+        return () => {
+            document.title = origTitle;
+            if (link) link.href = origFavicon;
+        };
+    }, [bossKeyOverlayVisible]);
+
+    // 聊天记录搜索：防抖调用 searchMessagesGlobal
+    useEffect(() => {
+        if (!searchQuery.trim()) {
+            setMessageSearchResults([]);
+            setMessageSearchLoading(false);
+            return;
+        }
+        const timer = setTimeout(async () => {
+            setMessageSearchLoading(true);
+            try {
+                const data = await socketService.searchMessagesGlobal(searchQuery.trim());
+                setMessageSearchResults(data || []);
+            } catch {
+                setMessageSearchResults([]);
+            } finally {
+                setMessageSearchLoading(false);
+            }
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [searchQuery]);
 
     // Error handling Effect
     useEffect(() => {
@@ -1728,7 +1865,53 @@ function App() {
                                 <button onClick={openCreateGroupModal} className="icon-btn" title="创建群聊"><Users size={19} /></button>
                             </div>
                         </div>
-                        <div style={{ padding: '0 25px 15px' }}><div style={{ position: 'relative' }}><Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} /><input type="text" placeholder="搜索联系人..." style={{ width: '100%', padding: '10px 10px 10px 36px', borderRadius: 10, border: 'none', background: 'rgba(255,255,255,0.5)', fontSize: 14, outline: 'none' }} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} /></div></div>
+                        <div style={{ padding: '0 25px 15px' }}><div style={{ position: 'relative' }}><Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} /><input type="text" placeholder="搜索" style={{ width: '100%', padding: '10px 10px 10px 36px', borderRadius: 10, border: 'none', background: 'rgba(255,255,255,0.5)', fontSize: 14, outline: 'none' }} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} /></div></div>
+
+                        {/* 聊天记录搜索结果（类似微信） */}
+                        {searchQuery.trim() && (
+                            <div style={{ padding: '0 14px 12px', borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
+                                <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <MessageSquare size={14} /> 聊天记录
+                                </div>
+                                {messageSearchLoading ? (
+                                    <div style={{ padding: '12px 0', fontSize: 13, color: '#94a3b8' }}>搜索中...</div>
+                                ) : messageSearchResults.flatMap((r) => r.messages).length === 0 ? (
+                                    <div style={{ padding: '12px 0', fontSize: 13, color: '#94a3b8' }}>未找到聊天记录</div>
+                                ) : (
+                                    <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+                                        {messageSearchResults.flatMap(({ chatId, chatName, messages: msgs }) =>
+                                            msgs.map((msg: any) => {
+                                                const chat = chats.find((c) => c.id === chatId);
+                                                return (
+                                                    <div
+                                                        key={msg.id}
+                                                        className="contact-item"
+                                                        style={{ padding: '10px 12px', borderRadius: 10, cursor: 'pointer' }}
+                                                        onClick={() => {
+                                                            if (chat) {
+                                                                console.log('[Search] 点击消息结果:', { chatId, messageId: msg.id, chatName });
+                                                                setScrollToMessageId(msg.id);
+                                                                (setCurrentChat as any)(chat, { aroundMessageId: msg.id });
+                                                                setSearchQuery('');
+                                                                setMessageSearchResults([]);
+                                                                setMobileShowChat(true);
+                                                            }
+                                                        }}
+                                                    >
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+                                                            <div style={{ fontSize: 13, color: '#64748b' }}>{chatName}</div>
+                                                            <div style={{ fontSize: 14, color: '#334155', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                                {msg.type === 'text' ? (msg.content || '[消息]') : `[${msg.type === 'image' ? '图片' : msg.type === 'file' ? '文件' : '消息'}]`}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
                         <div className="contact-list">
                             <div style={{ padding: '0 14px 8px' }}>
@@ -2199,7 +2382,7 @@ function App() {
                                     )}
                                 </div>
 
-                                <div className="chat-messages" id="messageArea">
+                                <div className={`chat-messages ${(scrollToMessageId || lastSearchScrollChatIdRef.current === currentChat?.id) ? 'search-scroll-active' : ''}`} id="messageArea">
                                     {Object.entries(messageGroups).map(([date, dateMessages]) => (
                                         <React.Fragment key={date}>
                                             <div className="date-separator-container">
@@ -2232,7 +2415,7 @@ function App() {
                                                     <div
                                                         key={message.id}
                                                         data-message-id={message.id}
-                                                        className={`message ${isOwn ? 'sent' : ''} ${message.type === 'system' ? 'system-message-row' : ''}`}
+                                                        className={`message ${isOwn ? 'sent' : ''} ${message.type === 'system' ? 'system-message-row' : ''} ${message.id === scrollToMessageId ? 'message-scroll-highlight' : ''}`}
                                                         onContextMenu={(e) => {
                                                             e.preventDefault();
                                                             if (message.type === 'system') return;
@@ -2657,6 +2840,86 @@ function App() {
             )}
             <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFileSelect} />
             <input ref={groupAvatarInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleGroupAvatarFileSelect} />
+            {/* 老板键：按 ESC 显示模拟 Google 界面，再按 ESC 返回 */}
+            {bossKeyOverlayVisible && (
+                <div
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        zIndex: 99999,
+                        backgroundColor: '#fff',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        fontFamily: 'arial, sans-serif',
+                    }}
+                >
+                    {/* 顶部链接区 */}
+                    <div style={{ padding: '20px 30px', display: 'flex', justifyContent: 'flex-end', gap: 16, fontSize: 14, color: '#202124' }}>
+                        <a href="#" style={{ color: '#202124', textDecoration: 'none' }} onMouseOver={e => (e.currentTarget.style.textDecoration = 'underline')} onMouseOut={e => (e.currentTarget.style.textDecoration = 'none')}>Gmail</a>
+                        <a href="#" style={{ color: '#202124', textDecoration: 'none' }} onMouseOver={e => (e.currentTarget.style.textDecoration = 'underline')} onMouseOut={e => (e.currentTarget.style.textDecoration = 'none')}>图片</a>
+                    </div>
+                    {/* 主搜索区 */}
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', marginTop: -60 }}>
+                        <div style={{ fontSize: 90, fontWeight: 400, marginBottom: 32, letterSpacing: -2 }}>
+                            <span style={{ color: '#4285f4' }}>G</span>
+                            <span style={{ color: '#ea4335' }}>o</span>
+                            <span style={{ color: '#fbbc05' }}>o</span>
+                            <span style={{ color: '#4285f4' }}>g</span>
+                            <span style={{ color: '#34a853' }}>l</span>
+                            <span style={{ color: '#ea4335' }}>e</span>
+                        </div>
+                        <form
+                            style={{ width: '100%', maxWidth: 584, display: 'flex', flexDirection: 'column', alignItems: 'center' }}
+                            onSubmit={(e) => {
+                                e.preventDefault();
+                                const q = bossKeySearchQuery.trim();
+                                const url = q ? `https://www.google.com/search?q=${encodeURIComponent(q)}` : 'https://www.google.com/';
+                                window.open(url, '_blank', 'noopener,noreferrer');
+                            }}
+                        >
+                            <div style={{ position: 'relative', width: '100%', marginBottom: 28 }}>
+                                <input
+                                    type="text"
+                                    value={bossKeySearchQuery}
+                                    onChange={(e) => setBossKeySearchQuery(e.target.value)}
+                                    placeholder="在 Google 上搜索，或者输入一个网址"
+                                    autoFocus
+                                    style={{
+                                        width: '100%',
+                                        height: 44,
+                                        padding: '0 20px 0 48px',
+                                        fontSize: 16,
+                                        border: '1px solid #dfe1e5',
+                                        borderRadius: 24,
+                                        outline: 'none',
+                                        boxShadow: '0 1px 6px rgba(32,33,36,.28)',
+                                    }}
+                                />
+                                <svg style={{ position: 'absolute', left: 20, top: '50%', transform: 'translateY(-50%)', width: 20, height: 20, color: '#9aa0a6', pointerEvents: 'none' }} viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+                            </div>
+                            <div style={{ display: 'flex', gap: 12 }}>
+                                <button type="submit" style={{ padding: '10px 20px', fontSize: 14, backgroundColor: '#f8f9fa', border: '1px solid #f8f9fa', borderRadius: 4, color: '#3c4043', cursor: 'pointer' }}>Google 搜索</button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const q = bossKeySearchQuery.trim();
+                                        const url = q ? `https://www.google.com/search?q=${encodeURIComponent(q)}&btnI=1` : 'https://www.google.com/';
+                                        window.open(url, '_blank', 'noopener,noreferrer');
+                                    }}
+                                    style={{ padding: '10px 20px', fontSize: 14, backgroundColor: '#f8f9fa', border: '1px solid #f8f9fa', borderRadius: 4, color: '#3c4043', cursor: 'pointer' }}
+                                >
+                                    手气不错
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                    {/* 底部 */}
+                    <div style={{ padding: '15px 30px', fontSize: 14, color: '#70757a', borderTop: '1px solid #dadce0' }}>
+                        <div style={{ marginBottom: 8 }}>广告 商务 关于 Google 如何运作</div>
+                        <div>© 2026 - 隐私权 - 条款</div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

@@ -346,6 +346,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
 export interface ChatContextTypeExtended extends ChatContextType {
     userCache: Map<string, User>;
     getUserInfo: (userId: string) => User | SocketUser | undefined;
+    setCurrentChat: (chat: Chat | null, options?: { aroundMessageId?: string }) => void;
 }
 
 const ChatContext = createContext<ChatContextTypeExtended | undefined>(undefined);
@@ -357,32 +358,21 @@ export function ChatProvider({ children }: ChatProviderProps) {
     const fetchingIds = useRef<Set<string>>(new Set());
 
     const getUserInfo = (userId: string) => {
-        if (process.env.NODE_ENV === 'development') {
-            console.log(`getUserInfo called for userId: ${userId}`);
-            console.log('Current user:', state.user);
+        if (userId === 'system') {
+            return {
+                id: 'system',
+                username: 'system',
+                displayName: 'System',
+                avatar: undefined,
+                status: 'offline' as const,
+                lastSeen: new Date(),
+                joinedAt: new Date()
+            } as User;
         }
-
-        if (state.user?.id === userId) {
-            if (process.env.NODE_ENV === 'development') {
-                console.log(`Returning current user for userId: ${userId}`);
-            }
-            return state.user;
-        }
-
+        if (state.user?.id === userId) return state.user;
         const onlineUser = state.onlineUsers.find(u => u.id === userId);
-        if (onlineUser) {
-            if (process.env.NODE_ENV === 'development') {
-                console.log(`Found online user for userId: ${userId}`, onlineUser);
-            }
-            return onlineUser;
-        }
-
-        const cachedUser = state.userCache.get(userId);
-        if (process.env.NODE_ENV === 'development') {
-            console.log(`Found cached user for userId: ${userId}`, cachedUser);
-        }
-
-        return cachedUser;
+        if (onlineUser) return onlineUser;
+        return state.userCache.get(userId);
     };
 
     const clearError = () => {
@@ -393,6 +383,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         const loadMissingUsers = async () => {
             if (!state.user) return;
             const hasUserInfo = (userId: string) => {
+                if (userId === 'system') return true;
                 if (state.user?.id === userId) return true;
                 if (state.onlineUsers.some(u => u.id === userId)) return true;
                 return state.userCache.has(userId);
@@ -407,7 +398,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
             state.messages.forEach(msg => {
                 if (!hasUserInfo(msg.senderId)) idsToFetch.add(msg.senderId);
             });
-            const realIds = Array.from(idsToFetch).filter(id => !fetchingIds.current.has(id));
+            const realIds = Array.from(idsToFetch).filter(id => id !== 'system' && !fetchingIds.current.has(id));
             if (realIds.length === 0) return;
             realIds.forEach(id => fetchingIds.current.add(id));
             try {
@@ -675,13 +666,14 @@ export function ChatProvider({ children }: ChatProviderProps) {
         dispatch({ type: 'CLEAR_USER' });
     };
 
-    const setCurrentChat = (chat: Chat | null) => {
+    const setCurrentChat = (chat: Chat | null, options?: { aroundMessageId?: string }) => {
+        console.log('[ChatContext] setCurrentChat 调用:', { chatId: chat?.id, aroundMessageId: options?.aroundMessageId });
         dispatch({ type: 'SET_CURRENT_CHAT', payload: chat });
         if (chat) {
             markMessagesAsRead(chat.id);
             dispatch({ type: 'CLEAR_CURRENT_CHAT_UNREAD' });
             localStorage.setItem('lastActiveChatId', chat.id);
-            socketService.getChatMessages(chat.id);
+            socketService.getChatMessages(chat.id, options?.aroundMessageId);
         } else {
             localStorage.removeItem('lastActiveChatId');
         }

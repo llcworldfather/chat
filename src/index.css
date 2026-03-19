@@ -459,16 +459,35 @@ body {
     letter-spacing: 0.5px;
 }
 
-/* 消息容器 */
+/* 消息容器 - 仅用 transform 动画，避免 search-scroll-active 移除时 opacity 0→1 闪烁 */
 .message {
     display: flex;
     gap: 10px;
     max-width: 85%;
-    opacity: 0;
+    opacity: 1;
     animation: messageSlide 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
 
 .message:nth-last-child(1) { animation-delay: 0s; }
+
+/* 搜索跳转时：跳过滑入动画并锁定最终状态，移除时不再重播避免闪烁 */
+.chat-messages.search-scroll-active .message {
+    animation: none;
+    transform: translateY(0) scale(1);
+}
+
+/* 目标消息高亮：需覆盖 search-scroll-active 的 animation:none，!important 确保生效 */
+.chat-messages.search-scroll-active .message.message-scroll-highlight {
+    animation: messageHighlight 2s ease-out backwards !important;
+    padding: 6px;
+    margin: -6px;
+    border-radius: 12px;
+}
+
+/* 普通场景（非 search-scroll-active）下的高亮 */
+.message.message-scroll-highlight {
+    animation: messageHighlight 2s ease-out backwards;
+}
 
 .system-message-row {
     align-self: stretch;
@@ -504,14 +523,35 @@ body {
 }
 
 @keyframes messageSlide {
-    from { opacity: 0; transform: translateY(10px) scale(0.98); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
+    from { transform: translateY(10px) scale(0.98); }
+    to { transform: translateY(0) scale(1); }
 }
 
 /* 发送方反转布局 */
 .message.sent {
     align-self: flex-end;
     flex-direction: row-reverse;
+}
+
+/* 搜索跳转时的目标消息高亮（更明显） */
+.message-scroll-highlight {
+    animation: messageHighlight 2s ease-out;
+}
+
+@keyframes messageHighlight {
+    0%, 15% {
+        background: rgba(250, 204, 21, 0.5);
+        box-shadow: 0 0 0 4px rgba(250, 164, 21, 0.85);
+        outline: 2px solid rgba(250, 164, 21, 0.9);
+        outline-offset: 2px;
+        border-radius: 12px;
+    }
+    100% {
+        background: transparent;
+        box-shadow: none;
+        outline: none;
+        border-radius: 12px;
+    }
 }
 
 /* 消息头像 - [保持大尺寸] */
