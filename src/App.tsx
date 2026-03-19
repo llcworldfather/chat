@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { Send, ChevronLeft, LogOut, Search, UserPlus, X, AlertCircle, Settings, Camera, Lock, User as UserIcon, Save, CheckCircle, Smile, Plus, MoreHorizontal, Trash2, Eraser, UserCheck, Ban, Sparkles, Users, MessageSquare } from 'lucide-react';
+import { Send, ChevronLeft, LogOut, Search, UserPlus, X, AlertCircle, Settings, Camera, Lock, User as UserIcon, Save, CheckCircle, Smile, Plus, MoreHorizontal, Trash2, Eraser, UserCheck, Ban, Sparkles, Users, MessageSquare, Pencil } from 'lucide-react';
 import { useChat } from './context/ChatContext';
 import { socketService } from './services/socket';
 import { formatMessageDate } from './utils/timeUtils';
@@ -2368,7 +2368,7 @@ function App() {
                                                 onClick={openGroupProfileModal}
                                                 title="编辑群资料"
                                             >
-                                                <Camera size={15} />
+                                                <Pencil size={15} />
                                             </button>
                                             <button
                                                 className="icon-btn danger"
