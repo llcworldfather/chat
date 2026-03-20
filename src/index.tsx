@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
 import { ChatProvider } from './context/ChatContext';
+import { PigRainOverlay } from './components/PigRainOverlay';
 import reportWebVitals from './reportWebVitals';
 
 // Runtime build marker for debugging "which frontend is running"
@@ -15,6 +16,7 @@ root.render(
   <React.StrictMode>
     <ChatProvider>
       <App />
+      <PigRainOverlay />
     </ChatProvider>
   </React.StrictMode>
 );

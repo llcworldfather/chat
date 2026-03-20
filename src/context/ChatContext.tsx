@@ -680,7 +680,12 @@ export function ChatProvider({ children }: ChatProviderProps) {
     };
 
     const sendMessage = (chatId: string, content: string, type = 'text', replyToId?: string) => {
-        if (content.trim()) socketService.sendMessage(chatId, content.trim(), type, replyToId);
+        const trimmed = content.trim();
+        if (!trimmed) return;
+        if (trimmed.toLowerCase() === 'pigsail') {
+            window.dispatchEvent(new CustomEvent('pigsail-rain'));
+        }
+        socketService.sendMessage(chatId, trimmed, type, replyToId);
     };
 
     const toggleMessageReaction = (chatId: string, messageId: string, emoji: string) => {
