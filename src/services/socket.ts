@@ -254,6 +254,106 @@ class SocketService {
         });
     }
 
+    /** 预览：以某条消息为窗口末尾，向前取历史（不触发主会话列表） */
+    previewChatMessages(chatId: string, endingAtMessageId: string, limit = 50): Promise<Message[]> {
+        return new Promise((resolve, reject) => {
+            if (!this.socket) {
+                reject(new Error('Socket not connected'));
+                return;
+            }
+            this.socket.emit(
+                'preview_chat_messages',
+                { chatId, endingAtMessageId, limit },
+                (response: any) => {
+                    if (response?.error) {
+                        reject(new Error(response.error));
+                        return;
+                    }
+                    resolve(response?.messages ?? []);
+                }
+            );
+        });
+    }
+
+    /**
+     * 群聊摘要（流式）：通过 onChunk 实时收到已拼接的完整文本；Promise 在完成时 resolve 为最终全文
+     * 仅用 requestId 关联事件（避免 chatId 类型不一致导致永远收不到 end、Promise 挂起）
+     * 不使用 emit 的 ack 回调（长时间操作易导致 ack 异常）
+     */
+    summarizeGroupChat(chatId: string, onChunk?: (accumulated: string) => void): Promise<string> {
+        return new Promise((resolve, reject) => {
+            if (!this.socket) {
+                reject(new Error('Socket not connected'));
+                return;
+            }
+
+            const requestId =
+                typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                    ? crypto.randomUUID()
+                    : `gs_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+
+            let accumulated = '';
+            let finished = false;
+            let timeoutId: number | undefined;
+
+            const TIMEOUT_MS = 180000;
+
+            const cleanup = () => {
+                if (timeoutId !== undefined) {
+                    window.clearTimeout(timeoutId);
+                    timeoutId = undefined;
+                }
+                this.socket?.off('group_summary_stream_start', onStart);
+                this.socket?.off('group_summary_stream_chunk', onChunkEvt);
+                this.socket?.off('group_summary_stream_end', onEnd);
+                this.socket?.off('group_summary_stream_error', onErr);
+            };
+
+            const finish = (fn: () => void) => {
+                if (finished) return;
+                finished = true;
+                cleanup();
+                fn();
+            };
+
+            timeoutId = window.setTimeout(() => {
+                finish(() =>
+                    reject(new Error('摘要超时（请检查网络与 DEEPSEEK_API_KEY），或稍后重试'))
+                );
+            }, TIMEOUT_MS);
+
+            const onStart = (data: { chatId?: string; requestId?: string }) => {
+                if (data?.requestId !== requestId) return;
+                accumulated = '';
+                onChunk?.('');
+            };
+
+            const onChunkEvt = (data: { chatId?: string; requestId?: string; chunk?: string }) => {
+                if (data?.requestId !== requestId) return;
+                accumulated += data.chunk || '';
+                onChunk?.(accumulated);
+            };
+
+            const onEnd = (data: { chatId?: string; requestId?: string }) => {
+                if (data?.requestId !== requestId) return;
+                finish(() => resolve(accumulated));
+            };
+
+            const onErr = (data: { chatId?: string; requestId?: string; message?: string }) => {
+                if (data?.requestId !== requestId) return;
+                finish(() => reject(new Error(data.message || '摘要生成失败')));
+            };
+
+            this.socket.on('group_summary_stream_start', onStart);
+            this.socket.on('group_summary_stream_chunk', onChunkEvt);
+            this.socket.on('group_summary_stream_end', onEnd);
+            this.socket.on('group_summary_stream_error', onErr);
+
+            // 仅发事件，不依赖服务端 ack（避免 Socket.io 对长耗时 ack 的兼容问题）
+            this.socket.emit('summarize_group_chat', { chatId: String(chatId), requestId, stream: true });
+        });
+    }
+
     createPigsailChat(): Promise<{ chat: Chat; messages: Message[]; recipient: User | null }> {
         return new Promise((resolve, reject) => {
             if (!this.socket) {

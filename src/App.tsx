@@ -1,9 +1,115 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { Send, ChevronLeft, LogOut, Search, UserPlus, X, AlertCircle, Settings, Camera, Lock, User as UserIcon, Save, CheckCircle, Smile, Plus, MoreHorizontal, Trash2, Eraser, UserCheck, Ban, Sparkles, Users, MessageSquare, Pencil } from 'lucide-react';
+import { Send, ChevronLeft, LogOut, Search, UserPlus, X, AlertCircle, Settings, Camera, Lock, User as UserIcon, Save, CheckCircle, Smile, Plus, MoreHorizontal, Trash2, Eraser, UserCheck, Ban, Sparkles, Users, Pencil, FileText, Loader2 } from 'lucide-react';
 import { useChat } from './context/ChatContext';
 import { socketService } from './services/socket';
 import { formatMessageDate } from './utils/timeUtils';
+import type { Chat, SocketUser, User } from './types';
 import './index.css';
+
+const SEARCH_HIT_GREEN = '#00C853';
+
+function formatSearchHitDate(date: Date | string | undefined): string {
+    if (date === undefined || date === null) return '';
+    const d = new Date(date);
+    if (Number.isNaN(d.getTime())) return '';
+    const now = new Date();
+    if (d.getFullYear() === now.getFullYear()) {
+        return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+    }
+    return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function formatSearchMessageDetailTime(d: Date | string | undefined): string {
+    if (d === undefined || d === null) return '';
+    const date = new Date(d);
+    if (Number.isNaN(date.getTime())) return '';
+    const m = date.getMonth() + 1;
+    const day = date.getDate();
+    const hh = String(date.getHours()).padStart(2, '0');
+    const mm = String(date.getMinutes()).padStart(2, '0');
+    return `${m}月${day}日 ${hh}:${mm}`;
+}
+
+function highlightQuery(text: string, query: string): React.ReactNode {
+    const q = query.trim();
+    if (!q || !text) return text;
+    const lower = text.toLowerCase();
+    const ql = q.toLowerCase();
+    const parts: React.ReactNode[] = [];
+    let start = 0;
+    let key = 0;
+    let pos = lower.indexOf(ql, start);
+    if (pos < 0) return text;
+    while (pos >= 0) {
+        if (pos > start) parts.push(text.slice(start, pos));
+        parts.push(
+            <span key={key++} style={{ color: SEARCH_HIT_GREEN, fontWeight: 600 }}>
+                {text.slice(pos, pos + q.length)}
+            </span>
+        );
+        start = pos + q.length;
+        pos = lower.indexOf(ql, start);
+    }
+    if (start < text.length) parts.push(text.slice(start));
+    return <>{parts}</>;
+}
+
+function searchPreviewText(msg: any): string {
+    if (!msg) return '';
+    if (msg.type === 'text') return msg.content || '[消息]';
+    if (msg.type === 'image') return '[图片]';
+    if (msg.type === 'file') return '[文件]';
+    if (msg.type === 'emoji') return msg.content || '[表情]';
+    return '[消息]';
+}
+
+function excludeSystemMessages<T extends { type?: string }>(messages: T[]): T[] {
+    return messages.filter((m) => m.type !== 'system');
+}
+
+function resolveSearchChatDisplay(
+    chat: Chat | undefined,
+    chatNameFallback: string,
+    user: User | null | undefined,
+    getUserInfo: (id: string) => User | SocketUser | undefined
+): { name: string; avatarUrl: string | null; avatarInitial: string; color: string } {
+    if (!chat) {
+        const fb = chatNameFallback || '';
+        return {
+            name: fb || '聊天',
+            avatarUrl: null,
+            avatarInitial: (fb || '?').slice(0, 2).toUpperCase(),
+            color: 'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)',
+        };
+    }
+    if (chat.type === 'private') {
+        const pid = chat.participants.find((id) => id !== user?.id);
+        const otherUser = pid ? getUserInfo(pid) : undefined;
+        const isPigsail =
+            (otherUser?.username || '').toLowerCase() === 'pigsail' ||
+            (otherUser?.displayName || '').toLowerCase() === 'pigsail';
+        const name = isPigsail
+            ? chat.name || otherUser?.displayName || 'PigSail'
+            : otherUser
+              ? otherUser.displayName || otherUser.username
+              : pid
+                ? `User ${pid.slice(0, 6)}`
+                : 'Unknown';
+        return {
+            name,
+            avatarUrl: otherUser?.avatar ?? null,
+            avatarInitial: name.slice(0, 2).toUpperCase(),
+            color: 'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)',
+        };
+    }
+    const gName = chat.name || chatNameFallback || '群组';
+    return {
+        name: gName,
+        avatarUrl: chat.avatar || null,
+        avatarInitial: gName.slice(0, 2).toUpperCase(),
+        color: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+    };
+}
 
 // 表情数据结构分类
 const EMOJI_CATEGORIES = [
@@ -111,6 +217,17 @@ function App() {
     const [searchQuery, setSearchQuery] = useState('');
     const [messageSearchResults, setMessageSearchResults] = useState<Array<{ chatId: string; chatName: string; messages: any[] }>>([]);
     const [messageSearchLoading, setMessageSearchLoading] = useState(false);
+    const [messageSearchModalOpen, setMessageSearchModalOpen] = useState(false);
+    const [messageSearchSelectedChatId, setMessageSearchSelectedChatId] = useState<string | null>(null);
+    const [messageSearchPreview, setMessageSearchPreview] = useState<{
+        chatId: string;
+        chatName: string;
+        anchorMessageId: string;
+        messages: any[];
+        loading: boolean;
+        error?: string;
+    } | null>(null);
+    const messageSearchPreviewScrollRef = useRef<HTMLDivElement>(null);
     const [scrollToMessageId, setScrollToMessageId] = useState<string | null>(null);
     const [showAddModal, setShowAddModal] = useState(false);
     const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
@@ -148,6 +265,14 @@ function App() {
     const [isGroupExpanded, setIsGroupExpanded] = useState(true);
     const [activeContactMenuChatId, setActiveContactMenuChatId] = useState<string | null>(null);
     const [replyTarget, setReplyTarget] = useState<any | null>(null);
+    /** open：是否显示摘要卡片（不能仅用 text 判断，空字符串也是 falsy，会导致转完圈整块消失） */
+    const [groupSummaryState, setGroupSummaryState] = useState<{
+        open: boolean;
+        loading: boolean;
+        text: string;
+        error: string | null;
+    }>({ open: false, loading: false, text: '', error: null });
+    const groupSummaryPanelRef = useRef<HTMLDivElement>(null);
     const [messageContextMenu, setMessageContextMenu] = useState<{
         message: any;
         x: number;
@@ -196,6 +321,15 @@ function App() {
         setMentionSuggestions([]);
         setMentionActiveIndex(0);
     }, [currentChat?.id]);
+
+    useEffect(() => {
+        setGroupSummaryState({ open: false, loading: false, text: '', error: null });
+    }, [currentChat?.id]);
+
+    useEffect(() => {
+        if (!groupSummaryState.open) return;
+        groupSummaryPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, [groupSummaryState.open]);
 
     useEffect(() => {
         if (!currentChat?.id) return;
@@ -490,7 +624,10 @@ function App() {
             setMessageSearchLoading(true);
             try {
                 const data = await socketService.searchMessagesGlobal(searchQuery.trim());
-                setMessageSearchResults(data || []);
+                const filtered = (data || [])
+                    .map((r) => ({ ...r, messages: excludeSystemMessages(r.messages || []) }))
+                    .filter((r) => r.messages.length > 0);
+                setMessageSearchResults(filtered);
             } catch {
                 setMessageSearchResults([]);
             } finally {
@@ -499,6 +636,39 @@ function App() {
         }, 300);
         return () => clearTimeout(timer);
     }, [searchQuery]);
+
+    useEffect(() => {
+        if (!searchQuery.trim()) {
+            setMessageSearchModalOpen(false);
+            setMessageSearchSelectedChatId(null);
+        }
+    }, [searchQuery]);
+
+    useEffect(() => {
+        if (!messageSearchModalOpen || !messageSearchResults.length) return;
+        const exists = messageSearchResults.some((r) => r.chatId === messageSearchSelectedChatId);
+        if (!exists) setMessageSearchSelectedChatId(messageSearchResults[0].chatId);
+    }, [messageSearchModalOpen, messageSearchResults, messageSearchSelectedChatId]);
+
+    useLayoutEffect(() => {
+        if (!messageSearchPreview || messageSearchPreview.loading) return;
+        const el = messageSearchPreviewScrollRef.current;
+        if (el && messageSearchPreview.messages.length) {
+            el.scrollTop = el.scrollHeight;
+        }
+    }, [messageSearchPreview]);
+
+    useEffect(() => {
+        if (!messageSearchModalOpen && !messageSearchPreview) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                if (messageSearchPreview) setMessageSearchPreview(null);
+                else setMessageSearchModalOpen(false);
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [messageSearchModalOpen, messageSearchPreview]);
 
     // Error handling Effect
     useEffect(() => {
@@ -734,6 +904,29 @@ function App() {
         if (!window.confirm(`确认退出群聊 "${currentChat.name || '未命名群组'}" 吗？`)) return;
         leaveGroup(currentChat.id);
         setMobileShowChat(false);
+    };
+
+    const handleSummarizeGroupChat = async () => {
+        if (!currentChat || currentChat.type !== 'group') return;
+        // 摘要从服务端 DB 拉取，不依赖当前页是否已加载消息
+        setGroupSummaryState({ open: true, loading: true, text: '', error: null });
+        try {
+            await socketService.summarizeGroupChat(currentChat.id, (accumulated) => {
+                setGroupSummaryState({ open: true, loading: true, text: accumulated, error: null });
+            });
+            setGroupSummaryState((s) => ({ ...s, loading: false, error: null }));
+        } catch (e: any) {
+            setGroupSummaryState({
+                open: true,
+                loading: false,
+                text: '',
+                error: e?.message || '摘要生成失败'
+            });
+        }
+    };
+
+    const dismissGroupSummary = () => {
+        setGroupSummaryState({ open: false, loading: false, text: '', error: null });
     };
 
     const openGroupMembersModal = () => {
@@ -1145,6 +1338,10 @@ function App() {
         return groups;
     };
     const messageGroups = groupMessagesByDate(messages);
+    const selectedMessageSearchEntry = messageSearchResults.find((r) => r.chatId === messageSearchSelectedChatId);
+    const selectedSearchChat = selectedMessageSearchEntry
+        ? chats.find((c) => c.id === selectedMessageSearchEntry.chatId)
+        : undefined;
     const getReplyMessage = (message: any) => message.replyToId ? messages.find(m => m.id === message.replyToId) : null;
     const hasReacted = (message: any, emoji: string) => !!user?.id && (message.reactions?.[emoji] || []).includes(user.id);
     const quickReactions = ['👍', '😂', '❤️', '😮', '😢'];
@@ -1161,6 +1358,36 @@ function App() {
             textArea.select();
             document.execCommand('copy');
             document.body.removeChild(textArea);
+        }
+    };
+
+    const navigateToMessageInChat = (chatId: string, messageId: string, closeSearchUi: boolean) => {
+        const chat = chats.find((c) => c.id === chatId);
+        if (!chat) return;
+        if (closeSearchUi) {
+            setMessageSearchModalOpen(false);
+            setMessageSearchPreview(null);
+            setSearchQuery('');
+            setMessageSearchResults([]);
+        }
+        setScrollToMessageId(messageId);
+        (setCurrentChat as any)(chat, { aroundMessageId: messageId });
+        setMobileShowChat(true);
+    };
+
+    const openMessageSearchPreviewModal = async (chatId: string, chatName: string, anchorMessageId: string) => {
+        setMessageSearchPreview({ chatId, chatName, anchorMessageId, messages: [], loading: true });
+        try {
+            const msgs = excludeSystemMessages(await socketService.previewChatMessages(chatId, anchorMessageId, 80));
+            setMessageSearchPreview((prev) =>
+                prev && prev.chatId === chatId && prev.anchorMessageId === anchorMessageId
+                    ? { ...prev, messages: msgs, loading: false, error: undefined }
+                    : prev
+            );
+        } catch (e: any) {
+            setMessageSearchPreview((prev) =>
+                prev ? { ...prev, loading: false, error: e?.message || '加载失败' } : null
+            );
         }
     };
 
@@ -1846,6 +2073,537 @@ function App() {
                     </div>
                 )}
 
+                {messageSearchModalOpen && searchQuery.trim() && (
+                    <div
+                        style={{
+                            position: 'fixed',
+                            inset: 0,
+                            zIndex: 10050,
+                            background: 'rgba(15, 23, 42, 0.45)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: 16,
+                        }}
+                        onClick={() => setMessageSearchModalOpen(false)}
+                    >
+                        <div
+                            style={{
+                                width: 'min(960px, 100%)',
+                                height: 'min(640px, 88vh)',
+                                background: '#fff',
+                                borderRadius: 12,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                overflow: 'hidden',
+                                boxShadow: '0 25px 50px rgba(0,0,0,0.2)',
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            role="dialog"
+                            aria-modal
+                        >
+                            <div
+                                style={{
+                                    padding: '14px 18px',
+                                    borderBottom: '1px solid #e2e8f0',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    flexShrink: 0,
+                                }}
+                            >
+                                <span style={{ fontSize: 17, fontWeight: 700, color: '#1e293b' }}>搜索聊天记录</span>
+                                <button
+                                    type="button"
+                                    className="icon-btn"
+                                    aria-label="关闭"
+                                    onClick={() => setMessageSearchModalOpen(false)}
+                                >
+                                    <X size={20} />
+                                </button>
+                            </div>
+                            <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+                                <div
+                                    style={{
+                                        width: 300,
+                                        borderRight: '1px solid #e2e8f0',
+                                        overflowY: 'auto',
+                                        flexShrink: 0,
+                                    }}
+                                >
+                                    {messageSearchResults
+                                        .filter((r) => r.messages?.length > 0)
+                                        .map(({ chatId, chatName, messages: msgs }) => {
+                                            const chat = chats.find((c) => c.id === chatId);
+                                            const info = resolveSearchChatDisplay(chat, chatName, user ?? null, getUserInfo);
+                                            const sorted = [...msgs].sort(
+                                                (a: any, b: any) =>
+                                                    new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+                                            );
+                                            const previewMsg = sorted[0];
+                                            const snippet = searchPreviewText(previewMsg);
+                                            const sel = messageSearchSelectedChatId === chatId;
+                                            return (
+                                                <div
+                                                    key={chatId}
+                                                    onClick={() => setMessageSearchSelectedChatId(chatId)}
+                                                    style={{
+                                                        display: 'flex',
+                                                        gap: 10,
+                                                        padding: '12px 14px',
+                                                        cursor: 'pointer',
+                                                        background: sel ? '#f1f5f9' : 'transparent',
+                                                        borderBottom: '1px solid #f1f5f9',
+                                                    }}
+                                                >
+                                                    <div
+                                                        style={{
+                                                            width: 40,
+                                                            height: 40,
+                                                            borderRadius: 8,
+                                                            flexShrink: 0,
+                                                            overflow: 'hidden',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            color: 'white',
+                                                            fontWeight: 700,
+                                                            fontSize: 13,
+                                                            background: info.color,
+                                                        }}
+                                                    >
+                                                        {info.avatarUrl ? (
+                                                            <img
+                                                                src={info.avatarUrl}
+                                                                alt=""
+                                                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                            />
+                                                        ) : (
+                                                            info.avatarInitial
+                                                        )}
+                                                    </div>
+                                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                                        <div
+                                                            style={{
+                                                                fontSize: 14,
+                                                                fontWeight: 600,
+                                                                color: '#1e293b',
+                                                                overflow: 'hidden',
+                                                                textOverflow: 'ellipsis',
+                                                                whiteSpace: 'nowrap',
+                                                            }}
+                                                        >
+                                                            {highlightQuery(info.name, searchQuery)}
+                                                        </div>
+                                                        <div
+                                                            style={{
+                                                                fontSize: 12,
+                                                                color: '#64748b',
+                                                                marginTop: 2,
+                                                                whiteSpace: 'nowrap',
+                                                                overflow: 'hidden',
+                                                                textOverflow: 'ellipsis',
+                                                            }}
+                                                        >
+                                                            {highlightQuery(snippet, searchQuery)}
+                                                        </div>
+                                                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+                                                            共{' '}
+                                                            <span style={{ color: SEARCH_HIT_GREEN, fontWeight: 600 }}>{msgs.length}</span>{' '}
+                                                            条
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                </div>
+                                <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                                    {selectedMessageSearchEntry ? (
+                                        <>
+                                            <div
+                                                style={{
+                                                    padding: '12px 16px',
+                                                    borderBottom: '1px solid #e2e8f0',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'space-between',
+                                                    gap: 12,
+                                                    flexShrink: 0,
+                                                }}
+                                            >
+                                                <span style={{ fontSize: 14, color: '#64748b' }}>
+                                                    共 {selectedMessageSearchEntry.messages.length} 条与 &quot;
+                                                    {searchQuery.trim()}&quot; 的聊天记录
+                                                </span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const sorted = [...selectedMessageSearchEntry.messages].sort(
+                                                            (a: any, b: any) =>
+                                                                new Date(b.timestamp).getTime() -
+                                                                new Date(a.timestamp).getTime()
+                                                        );
+                                                        const latest = sorted[0];
+                                                        if (latest) {
+                                                            navigateToMessageInChat(
+                                                                selectedMessageSearchEntry.chatId,
+                                                                latest.id,
+                                                                true
+                                                            );
+                                                        }
+                                                    }}
+                                                    style={{
+                                                        border: 'none',
+                                                        background: 'none',
+                                                        color: '#2563eb',
+                                                        fontSize: 14,
+                                                        cursor: 'pointer',
+                                                        fontWeight: 500,
+                                                        whiteSpace: 'nowrap',
+                                                    }}
+                                                >
+                                                    进入聊天 &gt;
+                                                </button>
+                                            </div>
+                                            <div style={{ flex: 1, overflowY: 'auto', padding: '8px 16px 20px' }}>
+                                                {[...selectedMessageSearchEntry.messages]
+                                                    .sort(
+                                                        (a: any, b: any) =>
+                                                            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+                                                    )
+                                                    .map((msg: any) => {
+                                                        const isOwn = msg.senderId === user?.id;
+                                                        const su = getUserInfo(msg.senderId);
+                                                        const senderName = isOwn
+                                                            ? user?.displayName || '我'
+                                                            : su?.displayName || su?.username || '…';
+                                                        const avatarUrl = isOwn ? user?.avatar : su?.avatar;
+                                                        const initial = (
+                                                            isOwn
+                                                                ? user?.displayName
+                                                                : su?.displayName || su?.username || '?'
+                                                        )?.slice(0, 2);
+                                                        return (
+                                                            <div
+                                                                key={msg.id}
+                                                                style={{
+                                                                    display: 'flex',
+                                                                    gap: 12,
+                                                                    padding: '14px 0',
+                                                                    borderBottom: '1px solid #f1f5f9',
+                                                                    alignItems: 'flex-start',
+                                                                }}
+                                                            >
+                                                                <div
+                                                                    style={{
+                                                                        width: 40,
+                                                                        height: 40,
+                                                                        borderRadius: 8,
+                                                                        flexShrink: 0,
+                                                                        overflow: 'hidden',
+                                                                        display: 'flex',
+                                                                        alignItems: 'center',
+                                                                        justifyContent: 'center',
+                                                                        fontSize: 13,
+                                                                        fontWeight: 700,
+                                                                        color: 'white',
+                                                                        background:
+                                                                            'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)',
+                                                                    }}
+                                                                >
+                                                                    {avatarUrl ? (
+                                                                        <img
+                                                                            src={avatarUrl}
+                                                                            alt=""
+                                                                            style={{
+                                                                                width: '100%',
+                                                                                height: '100%',
+                                                                                objectFit: 'cover',
+                                                                            }}
+                                                                        />
+                                                                    ) : (
+                                                                        (initial || '?').toUpperCase()
+                                                                    )}
+                                                                </div>
+                                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                                    <div
+                                                                        style={{
+                                                                            display: 'flex',
+                                                                            justifyContent: 'space-between',
+                                                                            gap: 8,
+                                                                            alignItems: 'flex-start',
+                                                                        }}
+                                                                    >
+                                                                        <span
+                                                                            style={{
+                                                                                fontWeight: 600,
+                                                                                fontSize: 14,
+                                                                                color: '#1e293b',
+                                                                            }}
+                                                                        >
+                                                                            {senderName}
+                                                                        </span>
+                                                                        <span
+                                                                            style={{
+                                                                                fontSize: 12,
+                                                                                color: '#94a3b8',
+                                                                                flexShrink: 0,
+                                                                            }}
+                                                                        >
+                                                                            {formatSearchMessageDetailTime(msg.timestamp)}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div
+                                                                        style={{
+                                                                            fontSize: 14,
+                                                                            color: '#334155',
+                                                                            marginTop: 6,
+                                                                            lineHeight: 1.45,
+                                                                            wordBreak: 'break-word',
+                                                                        }}
+                                                                    >
+                                                                        {highlightQuery(searchPreviewText(msg), searchQuery)}
+                                                                    </div>
+                                                                </div>
+                                                                <div
+                                                                    style={{
+                                                                        display: 'flex',
+                                                                        flexDirection: 'column',
+                                                                        gap: 6,
+                                                                        flexShrink: 0,
+                                                                        alignItems: 'flex-end',
+                                                                    }}
+                                                                >
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() =>
+                                                                            navigateToMessageInChat(
+                                                                                selectedMessageSearchEntry.chatId,
+                                                                                msg.id,
+                                                                                true
+                                                                            )
+                                                                        }
+                                                                        style={{
+                                                                            border: 'none',
+                                                                            background: 'none',
+                                                                            color: '#2563eb',
+                                                                            fontSize: 12,
+                                                                            cursor: 'pointer',
+                                                                            padding: 0,
+                                                                        }}
+                                                                    >
+                                                                        定位到聊天位置
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() =>
+                                                                            openMessageSearchPreviewModal(
+                                                                                selectedMessageSearchEntry.chatId,
+                                                                                resolveSearchChatDisplay(
+                                                                                    selectedSearchChat,
+                                                                                    selectedMessageSearchEntry.chatName,
+                                                                                    user ?? null,
+                                                                                    getUserInfo
+                                                                                ).name,
+                                                                                msg.id
+                                                                            )
+                                                                        }
+                                                                        style={{
+                                                                            border: 'none',
+                                                                            background: 'none',
+                                                                            color: '#2563eb',
+                                                                            fontSize: 12,
+                                                                            cursor: 'pointer',
+                                                                            padding: 0,
+                                                                        }}
+                                                                    >
+                                                                        预览
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <div
+                                            style={{
+                                                flex: 1,
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                color: '#94a3b8',
+                                                fontSize: 14,
+                                            }}
+                                        >
+                                            请选择左侧会话
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {messageSearchPreview && (
+                    <div
+                        style={{
+                            position: 'fixed',
+                            inset: 0,
+                            zIndex: 10060,
+                            background: 'rgba(15, 23, 42, 0.35)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: 16,
+                        }}
+                        onClick={() => setMessageSearchPreview(null)}
+                    >
+                        <div
+                            style={{
+                                width: 'min(440px, 100%)',
+                                height: 'min(580px, 86vh)',
+                                background: '#fff',
+                                borderRadius: 12,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                overflow: 'hidden',
+                                boxShadow: '0 25px 50px rgba(0,0,0,0.25)',
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            role="dialog"
+                            aria-modal
+                        >
+                            <div
+                                style={{
+                                    padding: '12px 16px',
+                                    borderBottom: '1px solid #e2e8f0',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    flexShrink: 0,
+                                }}
+                            >
+                                <span style={{ fontWeight: 600, color: '#1e293b', fontSize: 15 }}>
+                                    {messageSearchPreview.chatName}
+                                </span>
+                                <button
+                                    type="button"
+                                    className="icon-btn"
+                                    aria-label="关闭预览"
+                                    onClick={() => setMessageSearchPreview(null)}
+                                >
+                                    <X size={20} />
+                                </button>
+                            </div>
+                            <div
+                                ref={messageSearchPreviewScrollRef}
+                                style={{
+                                    flex: 1,
+                                    overflowY: 'auto',
+                                    padding: 14,
+                                    background: '#f1f5f9',
+                                    minHeight: 0,
+                                }}
+                            >
+                                {messageSearchPreview.loading && (
+                                    <div style={{ textAlign: 'center', color: '#64748b', padding: 24 }}>加载中…</div>
+                                )}
+                                {messageSearchPreview.error && (
+                                    <div style={{ color: '#dc2626', padding: 8 }}>{messageSearchPreview.error}</div>
+                                )}
+                                {!messageSearchPreview.loading &&
+                                    !messageSearchPreview.error &&
+                                    messageSearchPreview.messages.map((msg: any) => {
+                                        const isOwn = msg.senderId === user?.id;
+                                        const su = getUserInfo(msg.senderId);
+                                        const name = isOwn
+                                            ? user?.displayName || '我'
+                                            : su?.displayName || su?.username || '…';
+                                        return (
+                                            <div
+                                                key={msg.id}
+                                                style={{
+                                                    marginBottom: 14,
+                                                    display: 'flex',
+                                                    flexDirection: isOwn ? 'row-reverse' : 'row',
+                                                    gap: 10,
+                                                    alignItems: 'flex-end',
+                                                }}
+                                            >
+                                                <div
+                                                    style={{
+                                                        width: 36,
+                                                        height: 36,
+                                                        borderRadius: 8,
+                                                        flexShrink: 0,
+                                                        overflow: 'hidden',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        fontSize: 12,
+                                                        fontWeight: 700,
+                                                        color: 'white',
+                                                        background:
+                                                            'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)',
+                                                    }}
+                                                >
+                                                    {(isOwn ? user?.avatar : su?.avatar) ? (
+                                                        <img
+                                                            src={(isOwn ? user?.avatar : su?.avatar) as string}
+                                                            alt=""
+                                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                        />
+                                                    ) : (
+                                                        name.slice(0, 2).toUpperCase()
+                                                    )}
+                                                </div>
+                                                <div style={{ maxWidth: '78%' }}>
+                                                    <div
+                                                        style={{
+                                                            fontSize: 12,
+                                                            color: '#64748b',
+                                                            marginBottom: 4,
+                                                            textAlign: isOwn ? 'right' : 'left',
+                                                        }}
+                                                    >
+                                                        {name}
+                                                    </div>
+                                                    <div
+                                                        style={{
+                                                            padding: '10px 12px',
+                                                            borderRadius: 12,
+                                                            background: isOwn ? '#dbeafe' : '#fff',
+                                                            border: '1px solid rgba(148,163,184,0.25)',
+                                                            fontSize: 14,
+                                                            color: '#1e293b',
+                                                            lineHeight: 1.45,
+                                                            wordBreak: 'break-word',
+                                                        }}
+                                                    >
+                                                        {msg.type === 'text'
+                                                            ? highlightQuery(msg.content || '', searchQuery)
+                                                            : highlightQuery(searchPreviewText(msg), searchQuery)}
+                                                    </div>
+                                                    <div
+                                                        style={{
+                                                            fontSize: 11,
+                                                            color: '#94a3b8',
+                                                            marginTop: 4,
+                                                            textAlign: isOwn ? 'right' : 'left',
+                                                        }}
+                                                    >
+                                                        {formatSearchMessageDetailTime(msg.timestamp)}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 <div className="window-controls"><div className="window-dot close"></div><div className="window-dot minimize"></div><div className="window-dot maximize"></div></div>
 
                 <div className="chat-layout">
@@ -1867,47 +2625,129 @@ function App() {
                         </div>
                         <div style={{ padding: '0 25px 15px' }}><div style={{ position: 'relative' }}><Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} /><input type="text" placeholder="搜索" style={{ width: '100%', padding: '10px 10px 10px 36px', borderRadius: 10, border: 'none', background: 'rgba(255,255,255,0.5)', fontSize: 14, outline: 'none' }} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} /></div></div>
 
-                        {/* 聊天记录搜索结果（类似微信） */}
+                        {/* 聊天记录搜索结果 */}
                         {searchQuery.trim() && (
-                            <div style={{ padding: '0 14px 12px', borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
-                                <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                    <MessageSquare size={14} /> 聊天记录
+                            <div
+                                className="message-search-panel"
+                                style={{
+                                    margin: '0 10px 10px',
+                                    padding: '10px 0 4px',
+                                    background: '#fff',
+                                    borderRadius: 12,
+                                    borderBottom: '1px solid rgba(0,0,0,0.06)',
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        fontSize: 13,
+                                        color: '#94a3b8',
+                                        fontWeight: 500,
+                                        padding: '0 14px 8px',
+                                        borderBottom: '1px solid rgba(0,0,0,0.06)',
+                                    }}
+                                >
+                                    聊天记录
                                 </div>
                                 {messageSearchLoading ? (
-                                    <div style={{ padding: '12px 0', fontSize: 13, color: '#94a3b8' }}>搜索中...</div>
+                                    <div style={{ padding: '16px 14px', fontSize: 13, color: '#94a3b8' }}>搜索中...</div>
                                 ) : messageSearchResults.flatMap((r) => r.messages).length === 0 ? (
-                                    <div style={{ padding: '12px 0', fontSize: 13, color: '#94a3b8' }}>未找到聊天记录</div>
+                                    <div style={{ padding: '16px 14px', fontSize: 13, color: '#94a3b8' }}>未找到聊天记录</div>
                                 ) : (
-                                    <div style={{ maxHeight: 200, overflowY: 'auto' }}>
-                                        {messageSearchResults.flatMap(({ chatId, chatName, messages: msgs }) =>
-                                            msgs.map((msg: any) => {
+                                    <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+                                        {messageSearchResults
+                                            .filter((r) => r.messages?.length > 0)
+                                            .map(({ chatId, chatName, messages: msgs }) => {
                                                 const chat = chats.find((c) => c.id === chatId);
+                                                const info = resolveSearchChatDisplay(chat, chatName, user ?? null, getUserInfo);
+                                                const sorted = [...msgs].sort(
+                                                    (a: any, b: any) =>
+                                                        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+                                                );
+                                                const previewMsg = sorted[0];
+                                                const snippet = searchPreviewText(previewMsg);
                                                 return (
                                                     <div
-                                                        key={msg.id}
-                                                        className="contact-item"
-                                                        style={{ padding: '10px 12px', borderRadius: 10, cursor: 'pointer' }}
+                                                        key={chatId}
+                                                        className="message-search-result-row"
                                                         onClick={() => {
                                                             if (chat) {
-                                                                console.log('[Search] 点击消息结果:', { chatId, messageId: msg.id, chatName });
-                                                                setScrollToMessageId(msg.id);
-                                                                (setCurrentChat as any)(chat, { aroundMessageId: msg.id });
-                                                                setSearchQuery('');
-                                                                setMessageSearchResults([]);
-                                                                setMobileShowChat(true);
+                                                                setMessageSearchModalOpen(true);
+                                                                setMessageSearchSelectedChatId(chatId);
                                                             }
                                                         }}
                                                     >
-                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
-                                                            <div style={{ fontSize: 13, color: '#64748b' }}>{chatName}</div>
-                                                            <div style={{ fontSize: 14, color: '#334155', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                                {msg.type === 'text' ? (msg.content || '[消息]') : `[${msg.type === 'image' ? '图片' : msg.type === 'file' ? '文件' : '消息'}]`}
+                                                        <div
+                                                            style={{
+                                                                width: 45,
+                                                                height: 45,
+                                                                borderRadius: 8,
+                                                                flexShrink: 0,
+                                                                overflow: 'hidden',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                color: 'white',
+                                                                fontWeight: 700,
+                                                                fontSize: 14,
+                                                                background: info.color,
+                                                            }}
+                                                        >
+                                                            {info.avatarUrl ? (
+                                                                <img
+                                                                    src={info.avatarUrl}
+                                                                    alt=""
+                                                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                                />
+                                                            ) : (
+                                                                info.avatarInitial
+                                                            )}
+                                                        </div>
+                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                            <div
+                                                                style={{
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'space-between',
+                                                                    gap: 8,
+                                                                }}
+                                                            >
+                                                                <div
+                                                                    style={{
+                                                                        fontSize: 15,
+                                                                        fontWeight: 600,
+                                                                        color: '#1a202c',
+                                                                        overflow: 'hidden',
+                                                                        textOverflow: 'ellipsis',
+                                                                        whiteSpace: 'nowrap',
+                                                                    }}
+                                                                >
+                                                                    {highlightQuery(info.name, searchQuery)}
+                                                                </div>
+                                                                <div style={{ fontSize: 12, color: '#94a3b8', flexShrink: 0 }}>
+                                                                    {formatSearchHitDate(previewMsg.timestamp)}
+                                                                </div>
+                                                            </div>
+                                                            <div
+                                                                style={{
+                                                                    fontSize: 13,
+                                                                    color: '#64748b',
+                                                                    marginTop: 2,
+                                                                    whiteSpace: 'nowrap',
+                                                                    overflow: 'hidden',
+                                                                    textOverflow: 'ellipsis',
+                                                                }}
+                                                            >
+                                                                {highlightQuery(snippet, searchQuery)}
+                                                            </div>
+                                                            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>
+                                                                共{' '}
+                                                                <span style={{ color: SEARCH_HIT_GREEN, fontWeight: 600 }}>{msgs.length}</span>{' '}
+                                                                条相关聊天记录
                                                             </div>
                                                         </div>
                                                     </div>
                                                 );
-                                            })
-                                        )}
+                                            })}
                                     </div>
                                 )}
                             </div>
@@ -2361,7 +3201,17 @@ function App() {
                                         </div>
                                     </div>
                                     {currentChat?.type === 'group' && (
-                                        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+                                        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+                                            <button
+                                                type="button"
+                                                className="icon-btn"
+                                                style={{ padding: '6px 10px', borderRadius: 10, fontSize: 12, border: '1px solid rgba(148,163,184,0.3)' }}
+                                                onClick={handleSummarizeGroupChat}
+                                                disabled={groupSummaryState.loading}
+                                                title="PigSail来总结噜噜噜"
+                                            >
+                                                {groupSummaryState.loading ? <Loader2 size={15} className="summary-loader-spin" /> : <FileText size={15} />}
+                                            </button>
                                             <button
                                                 className="icon-btn"
                                                 style={{ padding: '6px 10px', borderRadius: 10, fontSize: 12, border: '1px solid rgba(148,163,184,0.3)' }}
@@ -2383,6 +3233,43 @@ function App() {
                                 </div>
 
                                 <div className={`chat-messages ${(scrollToMessageId || lastSearchScrollChatIdRef.current === currentChat?.id) ? 'search-scroll-active' : ''}`} id="messageArea">
+                                    {currentChat?.type === 'group' && groupSummaryState.open && (
+                                        <div
+                                            ref={groupSummaryPanelRef}
+                                            style={{ margin: '0 16px 12px', padding: 16, borderRadius: 14, background: 'rgba(239,246,255,0.95)', border: '1px solid rgba(147,197,253,0.6)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}
+                                        >
+                                            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1e40af', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                        <FileText size={14} />
+                                                        PigSail来总结噜噜噜
+                                                    </div>
+                                                    {groupSummaryState.error ? (
+                                                        <p style={{ fontSize: 13, color: '#dc2626', margin: 0 }}>{groupSummaryState.error}</p>
+                                                    ) : groupSummaryState.loading && groupSummaryState.text.length === 0 ? (
+                                                        <p style={{ fontSize: 13, color: '#64748b', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                            <Loader2 size={14} className="summary-loader-spin" />
+                                                            PigSail 正在流式输出摘要…
+                                                        </p>
+                                                    ) : !groupSummaryState.loading && groupSummaryState.text.length === 0 ? (
+                                                        <p style={{ fontSize: 13, color: '#64748b', margin: 0 }}>
+                                                            未收到摘要正文（可能网络或服务异常），可关闭后重试。
+                                                        </p>
+                                                    ) : (
+                                                        <p style={{ fontSize: 13, color: '#334155', margin: 0, whiteSpace: 'pre-wrap', lineHeight: 1.55 }}>{groupSummaryState.text}</p>
+                                                    )}
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={dismissGroupSummary}
+                                                    aria-label="关闭摘要"
+                                                    style={{ padding: 6, border: 'none', borderRadius: 8, background: 'rgba(219,234,254,0.8)', color: '#64748b', cursor: 'pointer', lineHeight: 0 }}
+                                                >
+                                                    <X size={14} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
                                     {Object.entries(messageGroups).map(([date, dateMessages]) => (
                                         <React.Fragment key={date}>
                                             <div className="date-separator-container">

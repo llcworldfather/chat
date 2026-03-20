@@ -137,6 +137,7 @@ export interface ChatContextType {
     clearChatMessages: (chatId: string) => Promise<void>;
     createNewPigsailChat: () => Promise<void>;
     updateUserProfile: (data: { displayName?: string; avatar?: string; password?: string; email?: string }) => Promise<void>;
+    summarizeGroupChat: (chatId: string, onChunk?: (accumulated: string) => void) => Promise<string>;
 
     // [新增] 清除错误的方法
     clearError: () => void;

@@ -11,7 +11,10 @@ import {
     CornerUpLeft,
     SmilePlus,
     Trash2,
-    Copy
+    Copy,
+    FileText,
+    X,
+    Loader2
 } from 'lucide-react';
 import { useChat } from '../../context/ChatContext';
 import { formatDateTime, formatMessageDate } from '../../utils/timeUtils';
@@ -29,12 +32,19 @@ export function ChatWindow() {
         typingStop,
         typingUsers,
         onlineUsers,
-        getUserInfo
+        getUserInfo,
+        summarizeGroupChat
     } = useChat();
 
     const [messageInput, setMessageInput] = useState('');
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
     const [replyTarget, setReplyTarget] = useState<Message | null>(null);
+    const [summaryState, setSummaryState] = useState<{
+        open: boolean;
+        loading: boolean;
+        text: string;
+        error: string | null;
+    }>({ open: false, loading: false, text: '', error: null });
     const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null);
     const [reactionPickerForId, setReactionPickerForId] = useState<string | null>(null);
     const [contextMenu, setContextMenu] = useState<{ message?: Message; x: number; y: number } | null>(null);
@@ -210,6 +220,23 @@ export function ChatWindow() {
             longPressTimerRef.current = undefined;
         }
     };
+    const handleSummarize = async () => {
+        if (!currentChat || currentChat.type !== 'group') return;
+        setSummaryState({ open: true, loading: true, text: '', error: null });
+        try {
+            await summarizeGroupChat(currentChat.id, (accumulated) => {
+                setSummaryState({ open: true, loading: true, text: accumulated, error: null });
+            });
+            setSummaryState((s) => ({ ...s, loading: false, error: null }));
+        } catch {
+            setSummaryState({ open: true, loading: false, text: '', error: '摘要生成失败' });
+        }
+    };
+
+    const dismissSummary = () => {
+        setSummaryState({ open: false, loading: false, text: '', error: null });
+    };
+
     const copyMessageContent = async (message: Message) => {
         try {
             await navigator.clipboard.writeText(message.content || '');
@@ -311,13 +338,59 @@ export function ChatWindow() {
                             <button className="btn-ghost tooltip" data-tooltip="视频通话"><Video className="w-5 h-5" /></button>
                         </>
                     )}
-                    {chatInfo.isGroup && (<button className="btn-ghost tooltip" data-tooltip="群组信息"><Users className="w-5 h-5" /></button>)}
+                    {chatInfo.isGroup && (
+                        <>
+                            <button
+                                className="btn-ghost tooltip"
+                                data-tooltip="PigSail来总结噜噜噜"
+                                onClick={handleSummarize}
+                                disabled={summaryState.loading}
+                            >
+                                {summaryState.loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileText className="w-5 h-5" />}
+                            </button>
+                            <button className="btn-ghost tooltip" data-tooltip="群组信息"><Users className="w-5 h-5" /></button>
+                        </>
+                    )}
                     <button className="btn-ghost tooltip" data-tooltip="更多选项"><MoreVertical className="w-5 h-5" /></button>
                 </div>
             </div>
 
             {/* Messages Area */}
             <div ref={messagesAreaRef} className="chat-messages" id="messageArea">
+                {/* 群聊摘要横幅 */}
+                {chatInfo.isGroup && summaryState.open && (
+                    <div className="mb-3 mx-4 p-4 rounded-xl bg-blue-50 border border-blue-100 shadow-sm">
+                        <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                                <div className="text-sm font-semibold text-blue-800 mb-2 flex items-center gap-2">
+                                    <FileText className="w-4 h-4 flex-shrink-0" />
+                                    PigSail来总结噜噜噜
+                                </div>
+                                {summaryState.error ? (
+                                    <p className="text-sm text-red-600">{summaryState.error}</p>
+                                ) : summaryState.loading && summaryState.text.length === 0 ? (
+                                    <p className="text-sm text-slate-500 flex items-center gap-2">
+                                        <Loader2 className="w-4 h-4 summary-loader-spin flex-shrink-0" />
+                                        PigSail 正在流式输出摘要…
+                                    </p>
+                                ) : !summaryState.loading && summaryState.text.length === 0 ? (
+                                    <p className="text-sm text-slate-500">未收到摘要正文，可关闭后重试。</p>
+                                ) : (
+                                    <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{summaryState.text}</p>
+                                )}
+                            </div>
+                            <button
+                                type="button"
+                                onClick={dismissSummary}
+                                className="p-1 rounded hover:bg-blue-100 text-gray-500 hover:text-gray-700 transition-colors"
+                                title="关闭"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+                    </div>
+                )}
+
                 {Object.entries(messageGroups).map(([date, dateMessages]) => (
                     <React.Fragment key={date}>
                         <div className="flex items-center justify-center my-2">

@@ -799,6 +799,17 @@ export function ChatProvider({ children }: ChatProviderProps) {
         }
     };
 
+    const summarizeGroupChat = async (chatId: string, onChunk?: (accumulated: string) => void): Promise<string> => {
+        dispatch({ type: 'SET_ERROR', payload: null });
+        try {
+            return await socketService.summarizeGroupChat(chatId, onChunk);
+        } catch (error: any) {
+            const msg = error instanceof Error ? error.message : '摘要生成失败';
+            dispatch({ type: 'SET_ERROR', payload: msg });
+            throw error;
+        }
+    };
+
     const createNewPigsailChat = async () => {
         dispatch({ type: 'SET_ERROR', payload: null });
         dispatch({ type: 'SET_LOADING', payload: true });
@@ -869,6 +880,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         createGroup, addGroupMembers, removeGroupMember, updateGroupProfile, getPrivateChat, leaveGroup, typingStart, typingStop,
         addFriend, loadFriendRequests, loadSentFriendRequests, handleFriendRequest, removeFriend, clearChatMessages, createNewPigsailChat, updateUserProfile,
         toggleMessageReaction, deleteMessage,
+        summarizeGroupChat,
         getUserInfo,
         clearError
     };
