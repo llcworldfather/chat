@@ -3742,8 +3742,8 @@ function App() {
                 >
                     {/* 顶部链接区 */}
                     <div style={{ padding: '20px 30px', display: 'flex', justifyContent: 'flex-end', gap: 16, fontSize: 14, color: '#202124' }}>
-                        <a href="#" style={{ color: '#202124', textDecoration: 'none' }} onMouseOver={e => (e.currentTarget.style.textDecoration = 'underline')} onMouseOut={e => (e.currentTarget.style.textDecoration = 'none')}>Gmail</a>
-                        <a href="#" style={{ color: '#202124', textDecoration: 'none' }} onMouseOver={e => (e.currentTarget.style.textDecoration = 'underline')} onMouseOut={e => (e.currentTarget.style.textDecoration = 'none')}>图片</a>
+                        <a href="https://mail.google.com/" target="_blank" rel="noopener noreferrer" style={{ color: '#202124', textDecoration: 'none' }} onMouseOver={e => (e.currentTarget.style.textDecoration = 'underline')} onMouseOut={e => (e.currentTarget.style.textDecoration = 'none')}>Gmail</a>
+                        <a href="https://www.google.com/imghp" target="_blank" rel="noopener noreferrer" style={{ color: '#202124', textDecoration: 'none' }} onMouseOver={e => (e.currentTarget.style.textDecoration = 'underline')} onMouseOut={e => (e.currentTarget.style.textDecoration = 'none')}>图片</a>
                     </div>
                     {/* 主搜索区 */}
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', marginTop: -60 }}>
