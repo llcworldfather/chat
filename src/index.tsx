@@ -4,6 +4,7 @@ import './index.css';
 import App from './App';
 import { ChatProvider } from './context/ChatContext';
 import { PigRainOverlay } from './components/PigRainOverlay';
+import { MessageAlertHost } from './components/MessageAlertHost';
 import { Analytics } from '@vercel/analytics/react';
 import reportWebVitals from './reportWebVitals';
 
@@ -17,6 +18,7 @@ root.render(
   <React.StrictMode>
     <ChatProvider>
       <App />
+      <MessageAlertHost />
       <PigRainOverlay />
       <Analytics />
     </ChatProvider>

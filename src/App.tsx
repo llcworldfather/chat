@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { Send, ChevronLeft, LogOut, Search, UserPlus, X, AlertCircle, Settings, Camera, Lock, User as UserIcon, Save, CheckCircle, Smile, Plus, MoreHorizontal, Trash2, Eraser, UserCheck, Ban, Sparkles, Users, Pencil, FileText, Loader2 } from 'lucide-react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useReducer, useCallback, useMemo } from 'react';
+import { Send, ChevronLeft, LogOut, Search, UserPlus, X, AlertCircle, Settings, Camera, Lock, User as UserIcon, Save, CheckCircle, Smile, Plus, MoreHorizontal, Trash2, Eraser, UserCheck, Ban, Sparkles, Users, Pencil, FileText, Loader2, Bell, BellOff } from 'lucide-react';
 import { useChat } from './context/ChatContext';
 import { socketService } from './services/socket';
 import { formatMessageDate } from './utils/timeUtils';
 import type { Chat, SocketUser, User } from './types';
+import { isDesktopNotifyEnabled, setDesktopNotifyEnabled } from './utils/desktopNotifyPrefs';
 import './index.css';
 
 const SEARCH_HIT_GREEN = '#00C853';
@@ -202,6 +203,41 @@ function App() {
         getUserInfo,
         clearError
     } = useChat();
+
+    const [, bumpNotifyUi] = useReducer((c: number) => c + 1, 0);
+    const notificationPermission = typeof Notification !== 'undefined' ? Notification.permission : 'denied';
+    const desktopNotifyOn = isDesktopNotifyEnabled();
+
+    const handleDesktopNotifyClick = useCallback(async () => {
+        if (typeof Notification === 'undefined') return;
+        if (notificationPermission === 'denied') {
+            window.alert('通知已被浏览器阻止，请在站点设置或浏览器设置中允许通知后刷新页面。');
+            return;
+        }
+        if (notificationPermission === 'default') {
+            const r = await Notification.requestPermission();
+            if (r === 'granted') setDesktopNotifyEnabled(true);
+            bumpNotifyUi();
+            return;
+        }
+        if (desktopNotifyOn) setDesktopNotifyEnabled(false);
+        else setDesktopNotifyEnabled(true);
+        bumpNotifyUi();
+    }, [notificationPermission, desktopNotifyOn]);
+
+    const desktopBellTitle =
+        notificationPermission === 'denied'
+            ? '桌面通知不可用（已被阻止）'
+            : notificationPermission === 'default'
+              ? '点击请求桌面通知权限'
+              : desktopNotifyOn
+                ? '桌面通知已开启（点击关闭）'
+                : '桌面通知已关闭（点击开启）';
+
+    const totalUnreadAll = useMemo(() => {
+        if (!user?.id) return 0;
+        return chats.reduce((sum, c) => sum + (c.unreadCounts?.get(user.id) || 0), 0);
+    }, [chats, user?.id]);
 
     const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
     const [inputText, setInputText] = useState('');
@@ -2609,8 +2645,52 @@ function App() {
                 <div className="chat-layout">
                     <div className="sidebar">
                         <div className="sidebar-header">
-                            <h3>Messages</h3>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 10,
+                                    flexShrink: 0,
+                                    minWidth: 'min-content',
+                                }}
+                            >
+                                <h3 style={{ margin: 0, flexShrink: 0, whiteSpace: 'nowrap' }}>Messages</h3>
+                                {user?.id && totalUnreadAll > 0 && (
+                                    <span
+                                        title={`${totalUnreadAll} 条未读`}
+                                        style={{
+                                            flexShrink: 0,
+                                            fontSize: 11,
+                                            fontWeight: 800,
+                                            minWidth: 20,
+                                            height: 20,
+                                            padding: '0 6px',
+                                            borderRadius: 10,
+                                            background: '#f43f5e',
+                                            color: 'white',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                        }}
+                                    >
+                                        {totalUnreadAll > 99 ? '99+' : totalUnreadAll}
+                                    </span>
+                                )}
+                            </div>
+                            <div className="sidebar-header-actions">
+                                <button
+                                    type="button"
+                                    onClick={() => void handleDesktopNotifyClick()}
+                                    className="icon-btn"
+                                    title={desktopBellTitle}
+                                    aria-label={desktopBellTitle}
+                                >
+                                    {notificationPermission === 'granted' && desktopNotifyOn ? (
+                                        <Bell size={19} color="#059669" strokeWidth={2} />
+                                    ) : (
+                                        <BellOff size={19} color="#94a3b8" strokeWidth={2} />
+                                    )}
+                                </button>
                                 <button onClick={openFriendRequests} className="icon-btn" title="好友申请" style={{ position: 'relative' }}>
                                     <UserCheck size={18} />
                                     {friendRequests.length > 0 && (
@@ -2623,7 +2703,7 @@ function App() {
                                 <button onClick={openCreateGroupModal} className="icon-btn" title="创建群聊"><Users size={19} /></button>
                             </div>
                         </div>
-                        <div style={{ padding: '0 25px 15px' }}><div style={{ position: 'relative' }}><Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} /><input type="text" placeholder="搜索" style={{ width: '100%', padding: '10px 10px 10px 36px', borderRadius: 10, border: 'none', background: 'rgba(255,255,255,0.5)', fontSize: 14, outline: 'none' }} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} /></div></div>
+                        <div style={{ padding: '0 22px 15px' }}><div style={{ position: 'relative' }}><Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} /><input type="text" placeholder="搜索" style={{ width: '100%', padding: '10px 10px 10px 36px', borderRadius: 10, border: 'none', background: 'rgba(255,255,255,0.5)', fontSize: 14, outline: 'none' }} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} /></div></div>
 
                         {/* 聊天记录搜索结果 */}
                         {searchQuery.trim() && (

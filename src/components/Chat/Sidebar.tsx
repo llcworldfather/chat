@@ -1,13 +1,16 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback, useReducer } from 'react';
 import {
     Search,
     Users,
     MessageCircle,
     LogOut,
-    Plus
+    Plus,
+    Bell,
+    BellOff
 } from 'lucide-react';
 import { useChat } from '../../context/ChatContext';
 import { formatTime } from '../../utils/timeUtils';
+import { isDesktopNotifyEnabled, setDesktopNotifyEnabled } from '../../utils/desktopNotifyPrefs';
 
 export function Sidebar() {
     const {
@@ -25,6 +28,41 @@ export function Sidebar() {
 
     const [searchQuery, setSearchQuery] = useState('');
     const [showUserList, setShowUserList] = useState(false);
+    const [, bumpNotifyUi] = useReducer((c: number) => c + 1, 0);
+
+    const totalUnreadAll = useMemo(() => {
+        if (!user?.id) return 0;
+        return chats.reduce((sum, c) => sum + (c.unreadCounts?.get(user.id) || 0), 0);
+    }, [chats, user?.id]);
+
+    const notificationPermission = typeof Notification !== 'undefined' ? Notification.permission : 'denied';
+    const desktopNotifyOn = isDesktopNotifyEnabled();
+
+    const handleDesktopNotifyClick = useCallback(async () => {
+        if (typeof Notification === 'undefined') return;
+        if (notificationPermission === 'denied') {
+            window.alert('通知已被浏览器阻止，请在站点设置或浏览器设置中允许通知后刷新页面。');
+            return;
+        }
+        if (notificationPermission === 'default') {
+            const r = await Notification.requestPermission();
+            if (r === 'granted') setDesktopNotifyEnabled(true);
+            bumpNotifyUi();
+            return;
+        }
+        if (desktopNotifyOn) setDesktopNotifyEnabled(false);
+        else setDesktopNotifyEnabled(true);
+        bumpNotifyUi();
+    }, [notificationPermission, desktopNotifyOn]);
+
+    const desktopBellTitle =
+        notificationPermission === 'denied'
+            ? '桌面通知不可用（已被阻止）'
+            : notificationPermission === 'default'
+              ? '点击请求桌面通知权限'
+              : desktopNotifyOn
+                ? '桌面通知已开启（点击关闭）'
+                : '桌面通知已关闭（点击开启）';
 
     const pigsailUserId = useMemo(() => {
         const fromOnline = onlineUsers.find(u =>
@@ -137,11 +175,34 @@ export function Sidebar() {
                             </div>
                         </div>
                         <div>
-                            <h3 className="font-semibold text-gray-900">{user?.displayName}</h3>
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <h3 className="font-semibold text-gray-900">{user?.displayName}</h3>
+                                {totalUnreadAll > 0 && (
+                                    <span
+                                        className="text-[10px] font-bold min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center bg-rose-500 text-white"
+                                        title={`${totalUnreadAll} 条未读`}
+                                    >
+                                        {totalUnreadAll > 99 ? '99+' : totalUnreadAll}
+                                    </span>
+                                )}
+                            </div>
                             <p className="text-sm text-gray-600">@{user?.username}</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-1">
+                        <button
+                            type="button"
+                            onClick={() => void handleDesktopNotifyClick()}
+                            className="btn-ghost tooltip relative"
+                            data-tooltip={desktopBellTitle}
+                            title={desktopBellTitle}
+                        >
+                            {notificationPermission === 'granted' && desktopNotifyOn ? (
+                                <Bell className="w-5 h-5 text-emerald-600" />
+                            ) : (
+                                <BellOff className="w-5 h-5 text-gray-400" />
+                            )}
+                        </button>
                         <button
                             onClick={() => setShowUserList(!showUserList)}
                             className="btn-ghost tooltip"
