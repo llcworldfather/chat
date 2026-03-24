@@ -5,6 +5,7 @@ import { socketService } from '../services/socket';
 import type { Chat, Message, SocketUser, User } from '../types';
 import { previewMessageContent } from '../utils/messagePreview';
 import { isDesktopNotifyEnabled } from '../utils/desktopNotifyPrefs';
+import { isBossKeyTitleLocked } from '../utils/bossKeyTitleLock';
 
 const BASE_TITLE = 'pigsail';
 
@@ -72,7 +73,9 @@ export function MessageAlertHost() {
     // 标题：未读数量 + 后台时闪烁
     useEffect(() => {
         if (!user?.id) {
-            document.title = BASE_TITLE;
+            if (!isBossKeyTitleLocked()) {
+                document.title = BASE_TITLE;
+            }
             return;
         }
 
@@ -90,6 +93,11 @@ export function MessageAlertHost() {
         };
 
         const applyTitle = () => {
+            if (isBossKeyTitleLocked()) {
+                clearFlash();
+                document.title = 'Google';
+                return;
+            }
             const total = totalUnread();
             if (document.visibilityState === 'hidden' && total > 0) {
                 clearFlash();
@@ -114,7 +122,9 @@ export function MessageAlertHost() {
 
         return () => {
             clearFlash();
-            document.title = BASE_TITLE;
+            if (!isBossKeyTitleLocked()) {
+                document.title = BASE_TITLE;
+            }
         };
     }, [user?.id, chats, docHidden]);
 

@@ -5,6 +5,7 @@ import { socketService } from './services/socket';
 import { formatMessageDate } from './utils/timeUtils';
 import type { Chat, SocketUser, User } from './types';
 import { isDesktopNotifyEnabled, setDesktopNotifyEnabled } from './utils/desktopNotifyPrefs';
+import { setBossKeyTitleLocked } from './utils/bossKeyTitleLock';
 import './index.css';
 
 const SEARCH_HIT_GREEN = '#00C853';
@@ -637,13 +638,17 @@ function App() {
 
     // 老板键显示时同步标签页标题和 favicon，隐藏时恢复
     useEffect(() => {
-        if (!bossKeyOverlayVisible) return;
+        if (!bossKeyOverlayVisible) {
+            return;
+        }
+        setBossKeyTitleLocked(true);
         const origTitle = document.title;
         const link = document.querySelector('link[rel="icon"]') as HTMLLinkElement | null;
         const origFavicon = link?.href ?? '';
         document.title = 'Google';
         if (link) link.href = 'https://www.google.com/favicon.ico';
         return () => {
+            setBossKeyTitleLocked(false);
             document.title = origTitle;
             if (link) link.href = origFavicon;
         };
