@@ -565,7 +565,13 @@ class SocketService {
             const response = await fetch(`${SERVER_URL}/api/random-avatar`);
             const result = await response.json();
             if (result.success && result.data.avatarUrl) {
-                return `${SERVER_URL}${result.data.avatarUrl}`;
+                const url = String(result.data.avatarUrl).trim();
+                // API already returns an absolute URL; do not prefix SERVER_URL (would produce invalid URLs).
+                if (/^https?:\/\//i.test(url)) {
+                    return url;
+                }
+                const path = url.startsWith('/') ? url : `/${url}`;
+                return `${SERVER_URL.replace(/\/$/, '')}${path}`;
             } else {
                 throw new Error(result.error || 'Failed to get random avatar');
             }

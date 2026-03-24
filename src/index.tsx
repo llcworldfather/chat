@@ -4,6 +4,7 @@ import './index.css';
 import App from './App';
 import { ChatProvider } from './context/ChatContext';
 import { PigRainOverlay } from './components/PigRainOverlay';
+import { Analytics } from '@vercel/analytics/react';
 import reportWebVitals from './reportWebVitals';
 
 // Runtime build marker for debugging "which frontend is running"
@@ -17,6 +18,7 @@ root.render(
     <ChatProvider>
       <App />
       <PigRainOverlay />
+      <Analytics />
     </ChatProvider>
   </React.StrictMode>
 );
