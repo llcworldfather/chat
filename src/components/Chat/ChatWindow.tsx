@@ -60,6 +60,7 @@ export function ChatWindow() {
     const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
     const longPressTimerRef = useRef<number | undefined>(undefined);
     const skipAutoScrollOnceRef = useRef(false);
+    const suppressLoadOlderUntilRef = useRef(0);
 
     const fetchOlderMessages = useCallback(async () => {
         if (!currentChat) return 0;
@@ -94,6 +95,8 @@ export function ChatWindow() {
             skipAutoScrollOnceRef.current = false;
             return;
         }
+        // Prevent accidental "reach top" loads while auto scrolling to latest.
+        suppressLoadOlderUntilRef.current = Date.now() + 1500;
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages, typingUsers]); // typingUsers 变化时也滚动
 
@@ -102,6 +105,7 @@ export function ChatWindow() {
         if (!area || !currentChat) return;
 
         const handleScroll = async () => {
+            if (Date.now() < suppressLoadOlderUntilRef.current) return;
             if (area.scrollTop > 60) return;
             await fetchOlderMessages();
         };
@@ -109,18 +113,6 @@ export function ChatWindow() {
         area.addEventListener('scroll', handleScroll);
         return () => area.removeEventListener('scroll', handleScroll);
     }, [currentChat, fetchOlderMessages]);
-
-    useEffect(() => {
-        const area = messagesAreaRef.current;
-        if (!area || !currentChat) return;
-        if (messageHistoryLoading || !messageHistoryHasMore) return;
-        if (messages.length === 0) return;
-
-        // If content still cannot scroll, auto-load one more page.
-        if (area.scrollHeight <= area.clientHeight + 8) {
-            void fetchOlderMessages();
-        }
-    }, [messages, currentChat, messageHistoryLoading, messageHistoryHasMore, fetchOlderMessages]);
 
     useEffect(() => {
         (window as any).__chatContextMenuFix = 'v5-mousedown-capture';
@@ -394,17 +386,6 @@ export function ChatWindow() {
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
-                    {messageHistoryHasMore && (
-                        <button
-                            type="button"
-                            className="btn-ghost tooltip text-xs px-2 py-1"
-                            data-tooltip="加载更早消息"
-                            onClick={() => { void fetchOlderMessages(); }}
-                            disabled={messageHistoryLoading || messages.length === 0}
-                        >
-                            {messageHistoryLoading ? '加载中...' : '历史↑'}
-                        </button>
-                    )}
                     {!chatInfo.isGroup && (
                         <>
                             <button className="btn-ghost tooltip" data-tooltip="语音通话"><Phone className="w-5 h-5" /></button>

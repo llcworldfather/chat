@@ -347,6 +347,7 @@ function App() {
     const lastSearchScrollAtRef = useRef<number>(0);
     const lastSearchScrollChatIdRef = useRef<string | null>(null);
     const keepScrollPositionRef = useRef(false);
+    const suppressLoadOlderUntilRef = useRef<number>(0);
 
     // 切换会话时清除「搜索跳转后的静态样式」标记，避免影响新会话的动画
     useEffect(() => {
@@ -361,6 +362,8 @@ function App() {
         }
         if (scrollToMessageId) return;
         if (Date.now() - lastSearchScrollAtRef.current < 2000) return;
+        // Prevent top-triggered history loading while smooth scrolling to latest.
+        suppressLoadOlderUntilRef.current = Date.now() + 1500;
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages, currentChat, typingUsers, scrollToMessageId]);
 
@@ -1263,20 +1266,10 @@ function App() {
     const handleMessageListScroll = useCallback(() => {
         const list = messageListRef.current;
         if (!list) return;
+        if (Date.now() < suppressLoadOlderUntilRef.current) return;
         if (list.scrollTop > 60) return;
         void fetchOlderMessages();
     }, [fetchOlderMessages]);
-
-    useEffect(() => {
-        const list = messageListRef.current;
-        if (!list || !currentChat?.id) return;
-        if (messageHistoryLoading || !messageHistoryHasMore) return;
-        if (messages.length === 0) return;
-
-        if (list.scrollHeight <= list.clientHeight + 8) {
-            void fetchOlderMessages();
-        }
-    }, [messages, currentChat?.id, messageHistoryLoading, messageHistoryHasMore, fetchOlderMessages]);
 
     const handleEmojiSelect = (emoji: string) => {
         setInputText(prev => prev + emoji);
@@ -3343,16 +3336,6 @@ function App() {
                                         </div>
                                     </div>
                                     <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
-                                        <button
-                                            type="button"
-                                            className="icon-btn"
-                                            style={{ padding: '6px 10px', borderRadius: 10, fontSize: 12, border: '1px solid rgba(148,163,184,0.3)' }}
-                                            onClick={() => { void fetchOlderMessages(); }}
-                                            disabled={messageHistoryLoading || !messageHistoryHasMore || messages.length === 0}
-                                            title={messageHistoryHasMore ? '加载更早消息' : '没有更早消息了'}
-                                        >
-                                            {messageHistoryLoading ? '加载中...' : '历史↑'}
-                                        </button>
                                     {currentChat?.type === 'group' && (
                                         <>
                                             <button
