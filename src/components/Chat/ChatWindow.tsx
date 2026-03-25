@@ -517,6 +517,7 @@ export function ChatWindow() {
                                                         <button
                                                             type="button"
                                                             className="reply-preview-inline"
+                                                            title="点击查看原消息"
                                                             onClick={() => {
                                                                 const target = messageRefs.current.get(replyMessage.id);
                                                                 if (target) {
@@ -524,11 +525,16 @@ export function ChatWindow() {
                                                                 }
                                                             }}
                                                         >
-                                                            <div className="font-semibold text-gray-600">
+                                                            <div className="reply-preview-inline-sender">
                                                                 {replySender?.displayName || replySender?.username || '未知用户'}
                                                             </div>
-                                                            <div className="text-gray-500 truncate">
-                                                                {replyMessage.content}
+                                                            <div className="reply-preview-inline-quote-row">
+                                                                <div className="reply-preview-inline-quote-text">
+                                                                    {replyMessage.content}
+                                                                </div>
+                                                                <span className="reply-preview-inline-chevron" aria-hidden>
+                                                                    &gt;
+                                                                </span>
                                                             </div>
                                                         </button>
                                                     );
@@ -688,7 +694,12 @@ export function ChatWindow() {
                         <div className="text-xs text-gray-500 mb-1">
                             回复 {getUserInfo(replyTarget.senderId)?.displayName || getUserInfo(replyTarget.senderId)?.username || '未知用户'}
                         </div>
-                        <div className="text-sm text-gray-700 truncate">{replyTarget.content}</div>
+                        <div className="reply-preview-inline-quote-row pr-7">
+                            <div className="reply-preview-inline-quote-text">{replyTarget.content}</div>
+                            <span className="reply-preview-inline-chevron" aria-hidden>
+                                &gt;
+                            </span>
+                        </div>
                         <button
                             type="button"
                             className="chat-reply-bar-close"

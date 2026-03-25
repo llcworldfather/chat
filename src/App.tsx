@@ -3432,30 +3432,27 @@ function App() {
                                                                         <div className="message-sender-name">{senderName}</div>
                                                                     )}
                                                                     {getReplyMessage(message) && (
-                                                                        <div
-                                                                            style={{
-                                                                                width: '100%',
-                                                                                marginBottom: 8,
-                                                                                padding: '6px 8px',
-                                                                                borderRadius: 8,
-                                                                                background: 'rgba(241,245,249,0.9)',
-                                                                                borderLeft: '3px solid #60a5fa',
-                                                                                fontSize: 12,
-                                                                                color: '#64748b',
-                                                                                cursor: 'pointer'
-                                                                            }}
+                                                                        <button
+                                                                            type="button"
+                                                                            className="reply-preview-inline"
+                                                                            title="点击查看原消息"
                                                                             onClick={() => {
                                                                                 const el = document.querySelector(`[data-message-id="${getReplyMessage(message)?.id}"]`);
                                                                                 if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
                                                                             }}
                                                                         >
-                                                                            <div style={{ fontWeight: 700, marginBottom: 2 }}>
+                                                                            <div className="reply-preview-inline-sender">
                                                                                 {getUserDisplayName(getReplyMessage(message)?.senderId || '')}
                                                                             </div>
-                                                                            <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                                                {getReplyMessage(message)?.content}
+                                                                            <div className="reply-preview-inline-quote-row">
+                                                                                <div className="reply-preview-inline-quote-text">
+                                                                                    {getReplyMessage(message)?.content}
+                                                                                </div>
+                                                                                <span className="reply-preview-inline-chevron" aria-hidden>
+                                                                                    &gt;
+                                                                                </span>
                                                                             </div>
-                                                                        </div>
+                                                                        </button>
                                                                     )}
                                                                     <p style={{ margin: 0 }}>{message.content}</p>
                                                                     <span className="message-time">{formatTimeShort(new Date(message.timestamp))}</span>
@@ -3579,6 +3576,10 @@ function App() {
                                     {replyTarget && (
                                         <div style={{
                                             width: '100%',
+                                            maxWidth: '100%',
+                                            minWidth: 0,
+                                            overflow: 'hidden',
+                                            boxSizing: 'border-box',
                                             position: 'relative',
                                             background: 'rgba(255,255,255,0.95)',
                                             border: '1px solid rgba(209,213,219,0.9)',
@@ -3587,11 +3588,14 @@ function App() {
                                             padding: '8px 30px 8px 10px',
                                             marginBottom: 6
                                         }}>
-                                            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 2 }}>
+                                            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
                                                 回复 {getUserDisplayName(replyTarget.senderId)}
                                             </div>
-                                            <div style={{ fontSize: 13, color: '#374151', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                {replyTarget.content}
+                                            <div className="reply-preview-inline-quote-row">
+                                                <div className="reply-preview-inline-quote-text">{replyTarget.content}</div>
+                                                <span className="reply-preview-inline-chevron" aria-hidden>
+                                                    &gt;
+                                                </span>
                                             </div>
                                             <button
                                                 type="button"
