@@ -28,6 +28,8 @@ interface ChatState {
     userCache: Map<string, User>;
     friendRequests: FriendRequest[];
     sentFriendRequests: FriendRequest[];
+    messageHistoryLoading: boolean;
+    messageHistoryHasMore: boolean;
 }
 
 type ChatAction =
@@ -41,7 +43,9 @@ type ChatAction =
     | { type: 'ADD_CHAT'; payload: Chat }
     | { type: 'UPDATE_CHAT'; payload: Chat }
     | { type: 'SET_CURRENT_CHAT'; payload: Chat | null }
-    | { type: 'SET_MESSAGES'; payload: Message[] }
+    | { type: 'SET_MESSAGES'; payload: { messages: Message[]; hasMore?: boolean } }
+    | { type: 'PREPEND_MESSAGES'; payload: { messages: Message[]; hasMore: boolean } }
+    | { type: 'SET_MESSAGE_HISTORY_LOADING'; payload: boolean }
     | { type: 'ADD_MESSAGE'; payload: Message }
     | { type: 'UPDATE_MESSAGE'; payload: Message }
     | { type: 'SET_ONLINE_USERS'; payload: SocketUser[] }
@@ -99,7 +103,9 @@ const initialState: ChatState = {
     error: null,
     userCache: loadCache(),
     friendRequests: [],
-    sentFriendRequests: []
+    sentFriendRequests: [],
+    messageHistoryLoading: false,
+    messageHistoryHasMore: true
 };
 
 function chatReducer(state: ChatState, action: ChatAction): ChatState {
@@ -130,9 +136,38 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
             const currentChat = state.currentChat?.id === updatedChat.id ? updatedChat : state.currentChat;
             return { ...state, chats, currentChat };
         }
-        case 'SET_CURRENT_CHAT': return { ...state, currentChat: action.payload, messages: [] };
+        case 'SET_CURRENT_CHAT':
+            return {
+                ...state,
+                currentChat: action.payload,
+                messages: [],
+                messageHistoryLoading: false,
+                messageHistoryHasMore: true
+            };
         case 'SET_MESSAGES':
-            return { ...state, messages: action.payload.map(normalizeMessage) };
+            return {
+                ...state,
+                messages: action.payload.messages.map(normalizeMessage),
+                messageHistoryLoading: false,
+                // For initial/refresh loads, allow one upward pagination attempt.
+                messageHistoryHasMore: action.payload.hasMore ?? true
+            };
+        case 'PREPEND_MESSAGES': {
+            const incoming = action.payload.messages.map(normalizeMessage);
+            if (incoming.length === 0) {
+                return { ...state, messageHistoryLoading: false, messageHistoryHasMore: action.payload.hasMore };
+            }
+            const existingIds = new Set(state.messages.map(msg => msg.id));
+            const uniqueIncoming = incoming.filter(msg => !existingIds.has(msg.id));
+            return {
+                ...state,
+                messages: uniqueIncoming.length > 0 ? [...uniqueIncoming, ...state.messages] : state.messages,
+                messageHistoryLoading: false,
+                messageHistoryHasMore: action.payload.hasMore
+            };
+        }
+        case 'SET_MESSAGE_HISTORY_LOADING':
+            return { ...state, messageHistoryLoading: action.payload };
         case 'ADD_MESSAGE': {
             const newMessage = normalizeMessage(action.payload);
 
@@ -434,6 +469,27 @@ export function ChatProvider({ children }: ChatProviderProps) {
     }, [state.onlineUsers]);
 
     const setupSocketListeners = () => {
+        const recoverToLatestWindowIfNeeded = (chat: Chat, loadedMessages: Message[]) => {
+            const lastMessageId = chat.lastMessage?.id;
+            if (!lastMessageId) return;
+            const hasLatest = loadedMessages.some((msg) => msg.id === lastMessageId);
+            if (hasLatest) return;
+
+            const lastMessageTime = chat.lastMessage?.timestamp
+                ? new Date(chat.lastMessage.timestamp).getTime()
+                : NaN;
+            const loadedLatestTime = loadedMessages.reduce((max, msg) => {
+                const t = new Date(msg.timestamp).getTime();
+                return Number.isFinite(t) && t > max ? t : max;
+            }, -Infinity);
+
+            // Only recover around lastMessage when it is newer than current window.
+            // If lastMessage is stale (older than loaded latest), do NOT override.
+            if (Number.isFinite(lastMessageTime) && lastMessageTime > loadedLatestTime + 1000) {
+                socketService.getChatMessages(chat.id, lastMessageId);
+            }
+        };
+
         socketService.onChatsLoaded((chats) => {
             dispatch({ type: 'SET_CHATS', payload: chats });
             const lastChatId = localStorage.getItem('lastActiveChatId');
@@ -451,15 +507,19 @@ export function ChatProvider({ children }: ChatProviderProps) {
         });
         socketService.onUserStatusChanged((data) => dispatch({ type: 'UPDATE_USER_STATUS', payload: data }));
         socketService.onPrivateChatLoaded(({ chat, messages, recipient }) => {
-            dispatch({ type: 'SET_CURRENT_CHAT', payload: parseChat(chat) });
-            dispatch({ type: 'SET_MESSAGES', payload: messages });
+            const parsedChat = parseChat(chat);
+            dispatch({ type: 'SET_CURRENT_CHAT', payload: parsedChat });
+            dispatch({ type: 'SET_MESSAGES', payload: { messages, hasMore: true } });
+            recoverToLatestWindowIfNeeded(parsedChat, messages);
             if (recipient) {
                 dispatch({ type: 'CACHE_USERS', payload: [recipient] });
             }
         });
         socketService.onChatMessagesLoaded(({ chat, messages, recipient }) => {
-            dispatch({ type: 'SET_CURRENT_CHAT', payload: parseChat(chat) });
-            dispatch({ type: 'SET_MESSAGES', payload: messages });
+            const parsedChat = parseChat(chat);
+            dispatch({ type: 'SET_CURRENT_CHAT', payload: parsedChat });
+            dispatch({ type: 'SET_MESSAGES', payload: { messages, hasMore: true } });
+            recoverToLatestWindowIfNeeded(parsedChat, messages);
             if (recipient) {
                 dispatch({ type: 'CACHE_USERS', payload: [recipient] });
             }
@@ -688,6 +748,26 @@ export function ChatProvider({ children }: ChatProviderProps) {
         socketService.sendMessage(chatId, trimmed, type, replyToId);
     };
 
+    const loadOlderMessages = async (chatId: string, beforeMessageId: string, limit = 30): Promise<number> => {
+        if (!chatId || !beforeMessageId) return 0;
+        if (state.messageHistoryLoading || !state.messageHistoryHasMore) return 0;
+        if (state.currentChat?.id !== chatId) return 0;
+
+        dispatch({ type: 'SET_MESSAGE_HISTORY_LOADING', payload: true });
+        try {
+            const result = await socketService.loadOlderMessages(chatId, beforeMessageId, limit);
+            dispatch({
+                type: 'PREPEND_MESSAGES',
+                payload: { messages: result.messages || [], hasMore: result.hasMore }
+            });
+            return result.messages?.length || 0;
+        } catch (error: any) {
+            dispatch({ type: 'SET_MESSAGE_HISTORY_LOADING', payload: false });
+            dispatch({ type: 'SET_ERROR', payload: error?.message || '加载历史消息失败' });
+            return 0;
+        }
+    };
+
     const toggleMessageReaction = (chatId: string, messageId: string, emoji: string) => {
         socketService.toggleReaction(chatId, messageId, emoji);
     };
@@ -824,7 +904,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
             dispatch({ type: 'ADD_CHAT', payload: parsedChat });
             // Reuse the normal chat-switch flow so unread is cleared immediately.
             setCurrentChat(parsedChat);
-            dispatch({ type: 'SET_MESSAGES', payload: response.messages || [] });
+            dispatch({ type: 'SET_MESSAGES', payload: { messages: response.messages || [], hasMore: (response.messages || []).length >= 50 } });
             if (response.recipient) {
                 dispatch({ type: 'CACHE_USERS', payload: [response.recipient] });
             }
@@ -886,6 +966,9 @@ export function ChatProvider({ children }: ChatProviderProps) {
         addFriend, loadFriendRequests, loadSentFriendRequests, handleFriendRequest, removeFriend, clearChatMessages, createNewPigsailChat, updateUserProfile,
         toggleMessageReaction, deleteMessage,
         summarizeGroupChat,
+        messageHistoryLoading: state.messageHistoryLoading,
+        messageHistoryHasMore: state.messageHistoryHasMore,
+        loadOlderMessages,
         getUserInfo,
         clearError
     };

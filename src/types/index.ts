@@ -138,6 +138,9 @@ export interface ChatContextType {
     createNewPigsailChat: () => Promise<void>;
     updateUserProfile: (data: { displayName?: string; avatar?: string; password?: string; email?: string }) => Promise<void>;
     summarizeGroupChat: (chatId: string, onChunk?: (accumulated: string) => void) => Promise<string>;
+    messageHistoryLoading: boolean;
+    messageHistoryHasMore: boolean;
+    loadOlderMessages: (chatId: string, beforeMessageId: string, limit?: number) => Promise<number>;
 
     // [新增] 清除错误的方法
     clearError: () => void;

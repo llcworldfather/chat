@@ -275,6 +275,64 @@ class SocketService {
         });
     }
 
+    loadOlderMessages(
+        chatId: string,
+        beforeMessageId: string,
+        limit = 30
+    ): Promise<{ messages: Message[]; hasMore: boolean }> {
+        return new Promise((resolve, reject) => {
+            if (!this.socket) {
+                reject(new Error('Socket not connected'));
+                return;
+            }
+
+            let finished = false;
+            const finishResolve = (payload: { messages: Message[]; hasMore: boolean }) => {
+                if (finished) return;
+                finished = true;
+                resolve(payload);
+            };
+            const finishReject = (err: Error) => {
+                if (finished) return;
+                finished = true;
+                reject(err);
+            };
+
+            const timer = window.setTimeout(async () => {
+                if (finished) return;
+                // Fallback path for environments still running server code
+                // without `load_older_messages` callback support.
+                try {
+                    const previewWindow = await this.previewChatMessages(chatId, beforeMessageId, limit + 1);
+                    const older = (previewWindow || []).filter((m) => m.id !== beforeMessageId);
+                    finishResolve({
+                        messages: older,
+                        hasMore: (previewWindow || []).length >= limit + 1
+                    });
+                } catch (error: any) {
+                    finishReject(new Error(error?.message || '加载历史消息失败'));
+                }
+            }, 2000);
+
+            this.socket.emit(
+                'load_older_messages',
+                { chatId, beforeMessageId, limit },
+                (response: any) => {
+                    window.clearTimeout(timer);
+                    if (finished) return;
+                    if (response?.error) {
+                        finishReject(new Error(response.error));
+                        return;
+                    }
+                    finishResolve({
+                        messages: response?.messages ?? [],
+                        hasMore: Boolean(response?.hasMore)
+                    });
+                }
+            );
+        });
+    }
+
     /**
      * 群聊摘要（流式）：通过 onChunk 实时收到已拼接的完整文本；Promise 在完成时 resolve 为最终全文
      * 仅用 requestId 关联事件（避免 chatId 类型不一致导致永远收不到 end、Promise 挂起）

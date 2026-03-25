@@ -202,6 +202,9 @@ function App() {
         isConnected,
         loading,
         error,
+        messageHistoryLoading,
+        messageHistoryHasMore,
+        loadOlderMessages,
         getUserInfo,
         clearError
     } = useChat();
@@ -331,6 +334,7 @@ function App() {
     const [previewImage, setPreviewImage] = useState<string | null>(null);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const messageListRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const groupAvatarInputRef = useRef<HTMLInputElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -342,6 +346,7 @@ function App() {
     const handledMentionMessageIdsRef = useRef<Set<string>>(new Set());
     const lastSearchScrollAtRef = useRef<number>(0);
     const lastSearchScrollChatIdRef = useRef<string | null>(null);
+    const keepScrollPositionRef = useRef(false);
 
     // 切换会话时清除「搜索跳转后的静态样式」标记，避免影响新会话的动画
     useEffect(() => {
@@ -350,6 +355,10 @@ function App() {
 
     // 有新消息时滚到底部，但搜索跳转场景跳过（含刚完成跳转后的短暂冷却，避免被拉回底部）
     useEffect(() => {
+        if (keepScrollPositionRef.current) {
+            keepScrollPositionRef.current = false;
+            return;
+        }
         if (scrollToMessageId) return;
         if (Date.now() - lastSearchScrollAtRef.current < 2000) return;
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1221,6 +1230,53 @@ function App() {
         setMentionSuggestions([]);
         setMentionActiveIndex(0);
     };
+
+    const fetchOlderMessages = useCallback(async () => {
+        if (!currentChat?.id) return 0;
+        if (messageHistoryLoading || !messageHistoryHasMore) return 0;
+        if (messages.length === 0) return 0;
+
+        const list = messageListRef.current;
+        const beforeMessageId = messages[0].id;
+        const prevHeight = list?.scrollHeight ?? 0;
+        const prevTop = list?.scrollTop ?? 0;
+
+        keepScrollPositionRef.current = true;
+        console.log('[App] load older trigger:', { chatId: currentChat.id, beforeMessageId });
+        const loaded = await loadOlderMessages(currentChat.id, beforeMessageId, 30);
+        console.log('[App] load older result:', { loaded });
+
+        if (loaded <= 0) {
+            keepScrollPositionRef.current = false;
+            return 0;
+        }
+
+        if (list) {
+            requestAnimationFrame(() => {
+                const nextHeight = list.scrollHeight;
+                list.scrollTop = prevTop + (nextHeight - prevHeight);
+            });
+        }
+        return loaded;
+    }, [currentChat?.id, messageHistoryLoading, messageHistoryHasMore, messages, loadOlderMessages]);
+
+    const handleMessageListScroll = useCallback(() => {
+        const list = messageListRef.current;
+        if (!list) return;
+        if (list.scrollTop > 60) return;
+        void fetchOlderMessages();
+    }, [fetchOlderMessages]);
+
+    useEffect(() => {
+        const list = messageListRef.current;
+        if (!list || !currentChat?.id) return;
+        if (messageHistoryLoading || !messageHistoryHasMore) return;
+        if (messages.length === 0) return;
+
+        if (list.scrollHeight <= list.clientHeight + 8) {
+            void fetchOlderMessages();
+        }
+    }, [messages, currentChat?.id, messageHistoryLoading, messageHistoryHasMore, fetchOlderMessages]);
 
     const handleEmojiSelect = (emoji: string) => {
         setInputText(prev => prev + emoji);
@@ -3286,8 +3342,19 @@ function App() {
                                             {currentChatInfo?.subtitle}
                                         </div>
                                     </div>
+                                    <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+                                        <button
+                                            type="button"
+                                            className="icon-btn"
+                                            style={{ padding: '6px 10px', borderRadius: 10, fontSize: 12, border: '1px solid rgba(148,163,184,0.3)' }}
+                                            onClick={() => { void fetchOlderMessages(); }}
+                                            disabled={messageHistoryLoading || !messageHistoryHasMore || messages.length === 0}
+                                            title={messageHistoryHasMore ? '加载更早消息' : '没有更早消息了'}
+                                        >
+                                            {messageHistoryLoading ? '加载中...' : '历史↑'}
+                                        </button>
                                     {currentChat?.type === 'group' && (
-                                        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+                                        <>
                                             <button
                                                 type="button"
                                                 className="icon-btn"
@@ -3314,11 +3381,17 @@ function App() {
                                             >
                                                 退群
                                             </button>
-                                        </div>
+                                        </>
                                     )}
+                                    </div>
                                 </div>
 
-                                <div className={`chat-messages ${(scrollToMessageId || lastSearchScrollChatIdRef.current === currentChat?.id) ? 'search-scroll-active' : ''}`} id="messageArea">
+                                <div
+                                    ref={messageListRef}
+                                    onScroll={handleMessageListScroll}
+                                    className={`chat-messages ${(scrollToMessageId || lastSearchScrollChatIdRef.current === currentChat?.id) ? 'search-scroll-active' : ''}`}
+                                    id="messageArea"
+                                >
                                     {currentChat?.type === 'group' && groupSummaryState.open && (
                                         <div
                                             ref={groupSummaryPanelRef}

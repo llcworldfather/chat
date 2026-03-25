@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
     Send,
     Smile,
@@ -34,7 +34,10 @@ export function ChatWindow() {
         typingUsers,
         onlineUsers,
         getUserInfo,
-        summarizeGroupChat
+        summarizeGroupChat,
+        messageHistoryLoading,
+        messageHistoryHasMore,
+        loadOlderMessages
     } = useChat();
 
     const [messageInput, setMessageInput] = useState('');
@@ -56,17 +59,75 @@ export function ChatWindow() {
     const typingTimeoutRef = useRef<number | undefined>(undefined);
     const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
     const longPressTimerRef = useRef<number | undefined>(undefined);
+    const skipAutoScrollOnceRef = useRef(false);
+
+    const fetchOlderMessages = useCallback(async () => {
+        if (!currentChat) return 0;
+        if (messageHistoryLoading || !messageHistoryHasMore) return 0;
+        if (messages.length === 0) return 0;
+
+        const area = messagesAreaRef.current;
+        const beforeMessageId = messages[0].id;
+        const prevHeight = area?.scrollHeight ?? 0;
+        const prevTop = area?.scrollTop ?? 0;
+
+        skipAutoScrollOnceRef.current = true;
+        console.log('[ChatWindow] load older trigger:', { chatId: currentChat.id, beforeMessageId });
+        const loaded = await loadOlderMessages(currentChat.id, beforeMessageId, 30);
+        console.log('[ChatWindow] load older result:', { loaded });
+        if (loaded <= 0) {
+            skipAutoScrollOnceRef.current = false;
+            return 0;
+        }
+
+        if (area) {
+            requestAnimationFrame(() => {
+                const nextHeight = area.scrollHeight;
+                area.scrollTop = prevTop + (nextHeight - prevHeight);
+            });
+        }
+        return loaded;
+    }, [currentChat, messageHistoryLoading, messageHistoryHasMore, messages, loadOlderMessages]);
 
     useEffect(() => {
+        if (skipAutoScrollOnceRef.current) {
+            skipAutoScrollOnceRef.current = false;
+            return;
+        }
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages, typingUsers]); // typingUsers 变化时也滚动
+
+    useEffect(() => {
+        const area = messagesAreaRef.current;
+        if (!area || !currentChat) return;
+
+        const handleScroll = async () => {
+            if (area.scrollTop > 60) return;
+            await fetchOlderMessages();
+        };
+
+        area.addEventListener('scroll', handleScroll);
+        return () => area.removeEventListener('scroll', handleScroll);
+    }, [currentChat, fetchOlderMessages]);
+
+    useEffect(() => {
+        const area = messagesAreaRef.current;
+        if (!area || !currentChat) return;
+        if (messageHistoryLoading || !messageHistoryHasMore) return;
+        if (messages.length === 0) return;
+
+        // If content still cannot scroll, auto-load one more page.
+        if (area.scrollHeight <= area.clientHeight + 8) {
+            void fetchOlderMessages();
+        }
+    }, [messages, currentChat, messageHistoryLoading, messageHistoryHasMore, fetchOlderMessages]);
 
     useEffect(() => {
         (window as any).__chatContextMenuFix = 'v5-mousedown-capture';
     }, []);
 
     useEffect(() => {
-        const handleClickOutsideMenu = (e: PointerEvent) => {
+        const handleClickOutsideMenu = (e: PointerEvent | MouseEvent) => {
             if (e.button !== 0) return;
             const target = e.target as HTMLElement | null;
             if (target?.closest('.message-context-menu')) return;
@@ -109,7 +170,7 @@ export function ChatWindow() {
             const handled = handleContextMenuInsideChat(e as unknown as MouseEvent);
             if (handled) return false;
             if (previousOnContextMenu) {
-                return previousOnContextMenu.call(window, e);
+                return previousOnContextMenu.call(window, e as unknown as PointerEvent);
             }
             return undefined;
         };
@@ -333,6 +394,17 @@ export function ChatWindow() {
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
+                    {messageHistoryHasMore && (
+                        <button
+                            type="button"
+                            className="btn-ghost tooltip text-xs px-2 py-1"
+                            data-tooltip="加载更早消息"
+                            onClick={() => { void fetchOlderMessages(); }}
+                            disabled={messageHistoryLoading || messages.length === 0}
+                        >
+                            {messageHistoryLoading ? '加载中...' : '历史↑'}
+                        </button>
+                    )}
                     {!chatInfo.isGroup && (
                         <>
                             <button className="btn-ghost tooltip" data-tooltip="语音通话"><Phone className="w-5 h-5" /></button>
@@ -358,6 +430,16 @@ export function ChatWindow() {
 
             {/* Messages Area */}
             <div ref={messagesAreaRef} className="chat-messages" id="messageArea">
+                {messageHistoryLoading && (
+                    <div className="flex items-center justify-center py-2">
+                        <span className="text-xs text-gray-500">加载更早消息...</span>
+                    </div>
+                )}
+                {!messageHistoryLoading && !messageHistoryHasMore && messages.length > 0 && (
+                    <div className="flex items-center justify-center py-2">
+                        <span className="text-xs text-gray-400">没有更早消息了</span>
+                    </div>
+                )}
                 {/* 群聊摘要横幅 */}
                 {chatInfo.isGroup && summaryState.open && (
                     <div className="mb-3 mx-4 p-4 rounded-xl bg-blue-50 border border-blue-100 shadow-sm">
