@@ -6,6 +6,7 @@ import { ChatProvider } from './context/ChatContext';
 import { PigRainOverlay } from './components/PigRainOverlay';
 import { MessageAlertHost } from './components/MessageAlertHost';
 import { Analytics } from '@vercel/analytics/react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import reportWebVitals from './reportWebVitals';
 
 // Runtime build marker for debugging "which frontend is running"
@@ -21,6 +22,7 @@ root.render(
       <MessageAlertHost />
       <PigRainOverlay />
       <Analytics />
+      <SpeedInsights />
     </ChatProvider>
   </React.StrictMode>
 );
