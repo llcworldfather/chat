@@ -1,5 +1,5 @@
 /* 引入 Inter (英文数字) 和 Noto Sans SC (中文) */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;900&display=swap');
 
 :root {
     /* 核心色板 */
@@ -17,6 +17,9 @@
     /* 文字颜色 - 统一使用深蓝灰 */
     --text-main: #334155;
     --text-light: #64748b;
+    /* Markdown **粗体**：比正文更深、更粗，避免 500→600 几乎看不出 */
+    --md-strong-color: #0f172a;
+    --md-strong-weight: 800;
 
     /* 强调色 */
     --accent-color: #34d399;
@@ -641,7 +644,7 @@ body {
 
     line-height: 1.5;
     font-size: 15px;
-    font-weight: 500;
+    font-weight: 400;
 
     /* 修改：稍微缩小字间距 */
     letter-spacing: 0.5px;
@@ -665,6 +668,17 @@ body {
     text-align: left;
     width: fit-content;
     margin: 0;
+}
+
+/* `**粗体**`（MarkdownBoldText）：与正文拉开对比 */
+.markdown-inline-strong {
+    font-weight: var(--md-strong-weight);
+    color: var(--md-strong-color);
+    letter-spacing: 0.02em;
+}
+
+.message.sent .markdown-inline-strong {
+    color: #0a0f18;
 }
 
 /* 发送方气泡样式 */

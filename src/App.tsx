@@ -6,6 +6,7 @@ import { formatMessageDate } from './utils/timeUtils';
 import type { Chat, SocketUser, User } from './types';
 import { isDesktopNotifyEnabled, setDesktopNotifyEnabled } from './utils/desktopNotifyPrefs';
 import { setBossKeyTitleLocked } from './utils/bossKeyTitleLock';
+import { MarkdownBoldText } from './components/MarkdownBoldText';
 import './index.css';
 
 const SEARCH_HIT_GREEN = '#00C853';
@@ -3341,7 +3342,11 @@ function App() {
                                                             未收到摘要正文（可能网络或服务异常），可关闭后重试。
                                                         </p>
                                                     ) : (
-                                                        <p style={{ fontSize: 13, color: '#334155', margin: 0, whiteSpace: 'pre-wrap', lineHeight: 1.55 }}>{groupSummaryState.text}</p>
+                                                        <MarkdownBoldText
+                                                            as="p"
+                                                            text={groupSummaryState.text}
+                                                            style={{ fontSize: 13, color: '#334155', margin: 0, lineHeight: 1.55 }}
+                                                        />
                                                     )}
                                                 </div>
                                                 <button
@@ -3414,7 +3419,9 @@ function App() {
                                                             <div className="system-message-wrap">
                                                                 <div className="system-message-pill">
                                                                     <Sparkles size={13} />
-                                                                    <span>{message.content}</span>
+                                                                    <span>
+                                                                        <MarkdownBoldText text={message.content} />
+                                                                    </span>
                                                                 </div>
                                                             </div>
                                                         ) : (
@@ -3446,7 +3453,7 @@ function App() {
                                                                             </div>
                                                                             <div className="reply-preview-inline-quote-row">
                                                                                 <div className="reply-preview-inline-quote-text">
-                                                                                    {getReplyMessage(message)?.content}
+                                                                                    <MarkdownBoldText text={getReplyMessage(message)?.content || ''} />
                                                                                 </div>
                                                                                 <span className="reply-preview-inline-chevron" aria-hidden>
                                                                                     &gt;
@@ -3454,7 +3461,9 @@ function App() {
                                                                             </div>
                                                                         </button>
                                                                     )}
-                                                                    <p style={{ margin: 0 }}>{message.content}</p>
+                                                                    <p style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                                                        <MarkdownBoldText text={message.content} />
+                                                                    </p>
                                                                     <span className="message-time">{formatTimeShort(new Date(message.timestamp))}</span>
                                                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
                                                                         {Object.entries(message.reactions || {}).map(([emoji, userIds]) => (

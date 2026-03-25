@@ -19,6 +19,7 @@ import {
 import { useChat } from '../../context/ChatContext';
 import { formatDateTime, formatMessageDate } from '../../utils/timeUtils';
 import { Message } from '../../types';
+import { MarkdownBoldText } from '../MarkdownBoldText';
 
 export function ChatWindow() {
     const {
@@ -376,7 +377,12 @@ export function ChatWindow() {
                                 ) : !summaryState.loading && summaryState.text.length === 0 ? (
                                     <p className="text-sm text-slate-500">未收到摘要正文，可关闭后重试。</p>
                                 ) : (
-                                    <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{summaryState.text}</p>
+                                    <MarkdownBoldText
+                                        as="p"
+                                        text={summaryState.text}
+                                        className="text-sm text-gray-700 leading-relaxed"
+                                        style={{ margin: 0 }}
+                                    />
                                 )}
                             </div>
                             <button
@@ -442,7 +448,7 @@ export function ChatWindow() {
                                     {message.type === 'system' ? (
                                         <div className="w-full text-center my-2">
                                             <span className="text-xs text-gray-500 italic bg-gray-100 px-3 py-1 rounded-full">
-                                                {message.content}
+                                                <MarkdownBoldText text={message.content} />
                                             </span>
                                         </div>
                                     ) : (
@@ -530,7 +536,7 @@ export function ChatWindow() {
                                                             </div>
                                                             <div className="reply-preview-inline-quote-row">
                                                                 <div className="reply-preview-inline-quote-text">
-                                                                    {replyMessage.content}
+                                                                    <MarkdownBoldText text={replyMessage.content} />
                                                                 </div>
                                                                 <span className="reply-preview-inline-chevron" aria-hidden>
                                                                     &gt;
@@ -540,8 +546,8 @@ export function ChatWindow() {
                                                     );
                                                 })()}
 
-                                                <p style={{ wordBreak: 'break-word' }}>
-                                                    {message.content}
+                                                <p style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
+                                                    <MarkdownBoldText text={message.content} />
                                                     {message.isStreaming && (
                                                         <span
                                                             className="inline-block w-0.5 h-4 bg-current ml-0.5 align-middle"
