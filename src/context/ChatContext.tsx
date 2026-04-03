@@ -69,11 +69,26 @@ type ChatAction =
     | { type: 'ADD_SENT_FRIEND_REQUEST'; payload: FriendRequest }
     | { type: 'UPDATE_SENT_FRIEND_REQUEST_STATUS'; payload: { requestId: string; status: 'accepted' | 'rejected' | 'blocked' } };
 
-const parseChat = (chat: any): Chat => {
+/** 服务端或 Socket 载荷若未带辩论字段，用本地已有会话合并，避免 currentChat 被覆盖后丢失 debateConfig */
+function mergeDebateFields(incoming: Chat, fallback?: Chat | null): Chat {
+    if (!fallback?.debateConfig && !fallback?.debateState) return incoming;
     return {
-        ...chat,
-        unreadCounts: new Map(Object.entries(chat.unreadCounts || {}))
+        ...incoming,
+        debateConfig: incoming.debateConfig ?? fallback?.debateConfig,
+        debateState: incoming.debateState ?? fallback?.debateState
     };
+}
+
+const parseChat = (chat: any): Chat => {
+    const unreadCounts = new Map(Object.entries(chat.unreadCounts || {}));
+    const base: Chat = {
+        ...chat,
+        unreadCounts
+    };
+    if (base.debateState && typeof base.debateState.votes !== 'object') {
+        base.debateState = { ...base.debateState, votes: {} };
+    }
+    return base;
 };
 
 const normalizeMessage = (message: Message): Message => ({
@@ -129,11 +144,16 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
             return { ...state, chats: [newChat, ...state.chats] };
         case 'UPDATE_CHAT': {
             const updatedChat = action.payload;
-            const exists = state.chats.some(c => c.id === updatedChat.id);
+            const prev = state.chats.find(c => c.id === updatedChat.id);
+            const merged = mergeDebateFields(updatedChat, prev);
+            const exists = state.chats.some(c => c.id === merged.id);
             const chats = exists
-                ? state.chats.map(c => c.id === updatedChat.id ? updatedChat : c)
-                : [updatedChat, ...state.chats];
-            const currentChat = state.currentChat?.id === updatedChat.id ? updatedChat : state.currentChat;
+                ? state.chats.map(c => c.id === merged.id ? merged : c)
+                : [merged, ...state.chats];
+            const currentChat =
+                state.currentChat?.id === merged.id
+                    ? mergeDebateFields(merged, state.currentChat)
+                    : state.currentChat;
             return { ...state, chats, currentChat };
         }
         case 'SET_CURRENT_CHAT':
@@ -391,6 +411,14 @@ interface ChatProviderProps { children: ReactNode; }
 export function ChatProvider({ children }: ChatProviderProps) {
     const [state, dispatch] = useReducer(chatReducer, initialState);
     const fetchingIds = useRef<Set<string>>(new Set());
+    const latestStateRef = useRef<{ chats: Chat[]; currentChat: Chat | null }>({
+        chats: [],
+        currentChat: null
+    });
+
+    useEffect(() => {
+        latestStateRef.current = { chats: state.chats, currentChat: state.currentChat };
+    });
 
     const getUserInfo = (userId: string) => {
         if (userId === 'system') {
@@ -398,6 +426,17 @@ export function ChatProvider({ children }: ChatProviderProps) {
                 id: 'system',
                 username: 'system',
                 displayName: 'System',
+                avatar: undefined,
+                status: 'offline' as const,
+                lastSeen: new Date(),
+                joinedAt: new Date()
+            } as User;
+        }
+        if (userId.startsWith('debate_ai_')) {
+            return {
+                id: userId,
+                username: 'debate_ai',
+                displayName: 'AI辩手',
                 avatar: undefined,
                 status: 'offline' as const,
                 lastSeen: new Date(),
@@ -431,9 +470,13 @@ export function ChatProvider({ children }: ChatProviderProps) {
                 }
             });
             state.messages.forEach(msg => {
-                if (!hasUserInfo(msg.senderId)) idsToFetch.add(msg.senderId);
+                if (!hasUserInfo(msg.senderId) && !msg.senderId.startsWith('debate_ai_')) {
+                    idsToFetch.add(msg.senderId);
+                }
             });
-            const realIds = Array.from(idsToFetch).filter(id => id !== 'system' && !fetchingIds.current.has(id));
+            const realIds = Array.from(idsToFetch).filter(
+                id => id !== 'system' && !id.startsWith('debate_ai_') && !fetchingIds.current.has(id)
+            );
             if (realIds.length === 0) return;
             realIds.forEach(id => fetchingIds.current.add(id));
             try {
@@ -517,9 +560,19 @@ export function ChatProvider({ children }: ChatProviderProps) {
         });
         socketService.onChatMessagesLoaded(({ chat, messages, recipient }) => {
             const parsedChat = parseChat(chat);
-            dispatch({ type: 'SET_CURRENT_CHAT', payload: parsedChat });
+            const { chats: list, currentChat: cur } = latestStateRef.current;
+            const fallback =
+                list.find((c) => c.id === parsedChat.id) ?? (cur?.id === parsedChat.id ? cur : undefined);
+            const merged = mergeDebateFields(parsedChat, fallback);
+            console.log('[debate][ChatContext] chat_messages_loaded', {
+                chatId: merged.id,
+                fromServer: { hasConfig: !!parsedChat.debateConfig, hasState: !!parsedChat.debateState },
+                fallbackHad: { hasConfig: !!fallback?.debateConfig, hasState: !!fallback?.debateState },
+                merged: { hasConfig: !!merged.debateConfig, phase: merged.debateState?.phase }
+            });
+            dispatch({ type: 'SET_CURRENT_CHAT', payload: merged });
             dispatch({ type: 'SET_MESSAGES', payload: { messages, hasMore: true } });
-            recoverToLatestWindowIfNeeded(parsedChat, messages);
+            recoverToLatestWindowIfNeeded(merged, messages);
             if (recipient) {
                 dispatch({ type: 'CACHE_USERS', payload: [recipient] });
             }
@@ -527,6 +580,13 @@ export function ChatProvider({ children }: ChatProviderProps) {
         socketService.onGroupCreated((chat) => dispatch({ type: 'ADD_CHAT', payload: parseChat(chat) }));
         socketService.onGroupCreatedSuccess((chat) => {
             const parsedChat = parseChat(chat);
+            console.log('[debate][ChatContext] group_created_success', {
+                chatId: parsedChat.id,
+                hasDebateConfig: !!parsedChat.debateConfig,
+                hasDebateState: !!parsedChat.debateState,
+                phase: parsedChat.debateState?.phase,
+                topic: parsedChat.debateConfig?.topic?.slice(0, 40)
+            });
             dispatch({ type: 'ADD_CHAT', payload: parsedChat });
             setCurrentChat(parsedChat);
         });
@@ -587,6 +647,15 @@ export function ChatProvider({ children }: ChatProviderProps) {
         socketService.onAiStreamStart(({ message }) => dispatch({ type: 'AI_STREAM_START', payload: message }));
         socketService.onAiStreamChunk((data) => dispatch({ type: 'AI_STREAM_CHUNK', payload: data }));
         socketService.onAiStreamEnd(({ message }) => dispatch({ type: 'AI_STREAM_END', payload: message }));
+        socketService.onDebateStateUpdated(({ chat }) => {
+            const c = parseChat(chat);
+            console.log('[debate][ChatContext] debate_state_updated', {
+                chatId: c.id,
+                phase: c.debateState?.phase,
+                hasConfig: !!c.debateConfig
+            });
+            dispatch({ type: 'UPDATE_CHAT', payload: c });
+        });
         socketService.onUserProfileUpdated((updatedUser) => {
             console.log('Received user_profile_updated event:', updatedUser);
 
@@ -778,6 +847,16 @@ export function ChatProvider({ children }: ChatProviderProps) {
 
     const markMessagesAsRead = (chatId: string) => socketService.markMessagesRead(chatId);
     const createGroup = (groupData: CreateGroupData) => socketService.createGroup(groupData);
+
+    const debateStart = async (chatId: string) => {
+        dispatch({ type: 'SET_ERROR', payload: null });
+        await socketService.debateStart(chatId);
+    };
+
+    const submitDebateVote = async (chatId: string, side: 'affirmative' | 'negative') => {
+        dispatch({ type: 'SET_ERROR', payload: null });
+        await socketService.submitDebateVote(chatId, side);
+    };
     const addGroupMembers = async (chatId: string, memberIds: string[]) => {
         dispatch({ type: 'SET_ERROR', payload: null });
         await socketService.addGroupMembers(chatId, memberIds);
@@ -962,7 +1041,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
     const contextValue: ChatContextTypeExtended = {
         ...state,
         login, register, logout, setCurrentChat, sendMessage, markMessagesAsRead,
-        createGroup, addGroupMembers, removeGroupMember, updateGroupProfile, getPrivateChat, leaveGroup, typingStart, typingStop,
+        createGroup, debateStart, submitDebateVote, addGroupMembers, removeGroupMember, updateGroupProfile, getPrivateChat, leaveGroup, typingStart, typingStop,
         addFriend, loadFriendRequests, loadSentFriendRequests, handleFriendRequest, removeFriend, clearChatMessages, createNewPigsailChat, updateUserProfile,
         toggleMessageReaction, deleteMessage,
         summarizeGroupChat,

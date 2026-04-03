@@ -434,7 +434,69 @@ class SocketService {
     }
 
     createGroup(groupData: CreateGroupData): void {
-        this.socket?.emit('create_group', groupData);
+        if (!this.socket) {
+            console.warn('[debate][socket] createGroup: socket 未连接，未发送');
+            return;
+        }
+        // 纯 JSON 可序列化对象，避免 Socket 传输时嵌套数组/字段异常
+        const plain = JSON.parse(JSON.stringify(groupData)) as CreateGroupData;
+        const keys = Object.keys(plain);
+        console.log('[debate][socket] emit create_group', {
+            serverUrl: SERVER_URL,
+            keys,
+            debateMode: plain.debateMode,
+            hasTopic: typeof plain.debateTopic === 'string' && plain.debateTopic.length > 0,
+            affIsArray: Array.isArray(plain.affirmativePersonas),
+            affLen: Array.isArray(plain.affirmativePersonas) ? plain.affirmativePersonas.length : -1,
+            negIsArray: Array.isArray(plain.negativePersonas),
+            negLen: Array.isArray(plain.negativePersonas) ? plain.negativePersonas.length : -1,
+            serializedSample: JSON.stringify(plain).slice(0, 280)
+        });
+        if (plain.debateMode) {
+            const local = /^(https?:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(SERVER_URL);
+            if (!local) {
+                console.warn(
+                    '[debate] 当前 Socket 指向远程服务器（见 serverUrl）。若建群后 group_created_success 无 debateConfig，多为该环境未部署含辩论逻辑的最新后端；本地联调请用 .env.development 指向 http://localhost:5000 并启动本机 server。'
+                );
+            }
+        }
+        this.socket.emit('create_group', plain);
+    }
+
+    debateStart(chatId: string): Promise<void> {
+        return new Promise((resolve, reject) => {
+            if (!this.socket) {
+                reject(new Error('Socket not connected'));
+                return;
+            }
+            this.socket.emit('debate_start', { chatId }, (response: { error?: string; success?: boolean }) => {
+                if (response?.error) {
+                    reject(new Error(response.error));
+                    return;
+                }
+                resolve();
+            });
+        });
+    }
+
+    submitDebateVote(chatId: string, side: 'affirmative' | 'negative'): Promise<void> {
+        return new Promise((resolve, reject) => {
+            if (!this.socket) {
+                reject(new Error('Socket not connected'));
+                return;
+            }
+            this.socket.emit('submit_debate_vote', { chatId, side }, (response: { error?: string }) => {
+                if (response?.error) {
+                    reject(new Error(response.error));
+                    return;
+                }
+                resolve();
+            });
+        });
+    }
+
+    onDebateStateUpdated(callback: (data: { chat: Chat }) => void): void {
+        this.socket?.on('debate_state_updated', callback);
     }
 
     addGroupMembers(chatId: string, memberIds: string[]): Promise<{ success: boolean; chat: Chat; addedMemberIds: string[] }> {

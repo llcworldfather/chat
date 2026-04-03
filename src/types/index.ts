@@ -9,6 +9,28 @@ export interface User {
     joinedAt: Date;
 }
 
+export interface DebateMessageMeta {
+    side: 'affirmative' | 'negative';
+    round: 1 | 2 | 3;
+    role: 'first' | 'second' | 'third';
+}
+
+export interface DebateConfig {
+    topic: string;
+    affirmativePersonas: [string, string, string];
+    negativePersonas: [string, string, string];
+}
+
+export type DebatePhase = 'pending' | 'debating' | 'voting' | 'closed';
+
+export interface DebateState {
+    phase: DebatePhase;
+    currentTurnIndex: number;
+    votes: Record<string, 'affirmative' | 'negative'>;
+    voteCounts?: { affirmative: number; negative: number };
+    winner?: 'affirmative' | 'negative' | 'tie';
+}
+
 export interface Message {
     id: string;
     senderId: string;
@@ -22,6 +44,7 @@ export interface Message {
     replyToId?: string;
     reactions: Record<string, string[]>;
     isStreaming?: boolean;   // true while the AI is still writing
+    debate?: DebateMessageMeta;
 }
 
 export interface Chat {
@@ -34,6 +57,8 @@ export interface Chat {
     createdAt: Date;
     lastMessage?: Message;
     unreadCounts: Map<string, number>;
+    debateConfig?: DebateConfig;
+    debateState?: DebateState;
 }
 
 export interface FriendRequest {
@@ -67,6 +92,10 @@ export interface CreateGroupData {
     name: string;
     participantIds: string[];
     avatar?: string;
+    debateMode?: boolean;
+    debateTopic?: string;
+    affirmativePersonas?: string[];
+    negativePersonas?: string[];
 }
 
 export interface TypingUser {
@@ -122,6 +151,8 @@ export interface ChatContextType {
     deleteMessage: (chatId: string, messageId: string) => void;
     markMessagesAsRead: (chatId: string) => void;
     createGroup: (groupData: CreateGroupData) => void;
+    debateStart: (chatId: string) => Promise<void>;
+    submitDebateVote: (chatId: string, side: 'affirmative' | 'negative') => Promise<void>;
     addGroupMembers: (chatId: string, memberIds: string[]) => Promise<void>;
     removeGroupMember: (chatId: string, memberId: string) => Promise<void>;
     updateGroupProfile: (chatId: string, data: { name?: string; avatar?: string }) => Promise<void>;

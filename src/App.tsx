@@ -169,6 +169,13 @@ const EMOJI_CATEGORIES = [
     }
 ];
 
+function formatDebateSpeakerLabel(message: { debate?: { side: string; role: string } }): string {
+    if (!message.debate) return '';
+    const pos =
+        message.debate.role === 'first' ? '一辩' : message.debate.role === 'second' ? '二辩' : '三辩';
+    return (message.debate.side === 'affirmative' ? '正方' : '反方') + pos;
+}
+
 function App() {
     const {
         user,
@@ -187,6 +194,8 @@ function App() {
         removeFriend,
         clearChatMessages,
         createGroup,
+        debateStart,
+        submitDebateVote,
         addGroupMembers,
         removeGroupMember,
         updateGroupProfile,
@@ -278,6 +287,10 @@ function App() {
     const [newGroupName, setNewGroupName] = useState('');
     const [groupParticipantIds, setGroupParticipantIds] = useState<string[]>([]);
     const [groupModalError, setGroupModalError] = useState('');
+    const [createGroupDebateMode, setCreateGroupDebateMode] = useState(false);
+    const [debateTopic, setDebateTopic] = useState('');
+    const [affPersonas, setAffPersonas] = useState<[string, string, string]>(['', '', '']);
+    const [negPersonas, setNegPersonas] = useState<[string, string, string]>(['', '', '']);
     const [showGroupProfileModal, setShowGroupProfileModal] = useState(false);
     const [showGroupMembersModal, setShowGroupMembersModal] = useState(false);
     const [groupNameDraft, setGroupNameDraft] = useState('');
@@ -861,6 +874,10 @@ function App() {
         setGroupModalError('');
         setNewGroupName('');
         setGroupParticipantIds([]);
+        setCreateGroupDebateMode(false);
+        setDebateTopic('');
+        setAffPersonas(['', '', '']);
+        setNegPersonas(['', '', '']);
         setShowCreateGroupModal(true);
     };
 
@@ -883,14 +900,51 @@ function App() {
             return;
         }
 
-        createGroup({
-            name: groupName,
-            participantIds: groupParticipantIds
-        });
+        if (createGroupDebateMode) {
+            const topic = debateTopic.trim();
+            if (!topic) {
+                setGroupModalError('请输入辩题');
+                return;
+            }
+            const aff = affPersonas.map((s) => s.trim());
+            const neg = negPersonas.map((s) => s.trim());
+            if (aff.some((s) => !s) || neg.some((s) => !s)) {
+                setGroupModalError('请填写正反方一辩、二辩、三辩的人设');
+                return;
+            }
+            const payload = {
+                name: groupName,
+                participantIds: [...groupParticipantIds],
+                debateMode: true as const,
+                debateTopic: topic,
+                affirmativePersonas: [aff[0], aff[1], aff[2]],
+                negativePersonas: [neg[0], neg[1], neg[2]]
+            };
+            console.log('[debate][App] 即将建 AI 辩论群', {
+                createGroupDebateMode,
+                name: payload.name,
+                participantCount: payload.participantIds.length,
+                debateMode: payload.debateMode,
+                topicLen: payload.debateTopic.length,
+                affLens: payload.affirmativePersonas.map((s) => s.length),
+                negLens: payload.negativePersonas.map((s) => s.length)
+            });
+            createGroup(payload);
+        } else {
+            console.log('[debate][App] 即将建普通群', { name: groupName, participantCount: groupParticipantIds.length });
+            createGroup({
+                name: groupName,
+                participantIds: [...groupParticipantIds]
+            });
+        }
         setShowCreateGroupModal(false);
         setGroupModalError('');
         setNewGroupName('');
         setGroupParticipantIds([]);
+        setCreateGroupDebateMode(false);
+        setDebateTopic('');
+        setAffPersonas(['', '', '']);
+        setNegPersonas(['', '', '']);
     };
 
     const openFriendRequests = async () => {
@@ -1226,6 +1280,7 @@ function App() {
 
     const handleSendMessage = () => {
         if (!inputText.trim() || !currentChat) return;
+        if (currentChat.type === 'group' && currentChat.debateConfig) return;
         sendMessage(currentChat.id, inputText, 'text', replyTarget?.id);
         setInputText('');
         setReplyTarget(null);
@@ -1415,6 +1470,44 @@ function App() {
         : [];
     const isOwnMessage = (message: any) => message.senderId === user?.id;
 
+    const isDebateChat = currentChat?.type === 'group' && !!currentChat.debateConfig;
+    const debateState = currentChat?.type === 'group' ? currentChat.debateState : undefined;
+    const showDebateStart =
+        isDebateChat && debateState?.phase === 'pending' && currentChat?.adminId === user?.id;
+    const canSubmitDebateVote =
+        isDebateChat &&
+        debateState?.phase === 'voting' &&
+        !!user?.id &&
+        !debateState?.votes?.[user.id];
+    const debateStatusHint =
+        debateState?.phase === 'debating'
+            ? `AI 辩论进行中（进度 ${Math.min(debateState.currentTurnIndex, 6)}/6）`
+            : debateState?.phase === 'pending'
+              ? '等待群主点击「开始辩论」'
+              : debateState?.phase === 'voting'
+                ? '辩论发言已结束，请投票'
+                : debateState?.phase === 'closed'
+                  ? `投票已结束${debateState.winner === 'tie' ? '（平局）' : debateState.winner === 'affirmative' ? '（正方胜）' : debateState.winner === 'negative' ? '（反方胜）' : ''}`
+                  : '';
+
+    const handleDebateStartClick = async () => {
+        if (!currentChat?.id) return;
+        try {
+            await debateStart(currentChat.id);
+        } catch (e: any) {
+            window.alert(e?.message || '开始辩论失败');
+        }
+    };
+
+    const handleDebateVoteClick = async (side: 'affirmative' | 'negative') => {
+        if (!currentChat?.id) return;
+        try {
+            await submitDebateVote(currentChat.id, side);
+        } catch (e: any) {
+            window.alert(e?.message || '投票失败');
+        }
+    };
+
     const formatTimeShort = (date: Date) => {
         return new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
     };
@@ -1485,6 +1578,7 @@ function App() {
     // [新增] 处理查看用户详情
     const handleViewUser = (userId: string) => {
         if (!userId) return;
+        if (userId.startsWith('debate_ai_')) return;
         if (userId === user?.id) {
             setShowProfileModal(true); // 看自己 -> 编辑资料
         } else {
@@ -1570,8 +1664,17 @@ function App() {
                 {/* 2. 创建群聊 Modal */}
                 {showCreateGroupModal && (
                     <div className="modal-overlay">
-                        <div className="modal-content" style={{ width: 480, maxHeight: '80vh' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                        <div
+                            className="modal-content"
+                            style={{
+                                width: 480,
+                                maxWidth: 'calc(100vw - 32px)',
+                                maxHeight: '85vh',
+                                minHeight: 0,
+                                overflow: 'hidden'
+                            }}
+                        >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexShrink: 0 }}>
                                 <h3 style={{ fontSize: 22, fontWeight: 800, color: '#2d3748', margin: 0 }}>创建群聊</h3>
                                 <button className="icon-btn" onClick={() => setShowCreateGroupModal(false)}>
                                     <X size={20} />
@@ -1579,11 +1682,23 @@ function App() {
                             </div>
 
                             {groupModalError && (
-                                <div style={{ marginBottom: 12, padding: '10px 12px', background: 'rgba(254,226,226,0.6)', borderRadius: 10, color: '#dc2626', fontSize: 13 }}>
+                                <div style={{ marginBottom: 12, padding: '10px 12px', background: 'rgba(254,226,226,0.6)', borderRadius: 10, color: '#dc2626', fontSize: 13, flexShrink: 0 }}>
                                     {groupModalError}
                                 </div>
                             )}
 
+                            <div
+                                style={{
+                                    flex: '1 1 auto',
+                                    minHeight: 0,
+                                    maxHeight: 'calc(85vh - 220px)',
+                                    overflowY: 'auto',
+                                    overflowX: 'hidden',
+                                    WebkitOverflowScrolling: 'touch',
+                                    paddingRight: 4,
+                                    marginRight: -4
+                                }}
+                            >
                             <div className="input-group">
                                 <label>群名称</label>
                                 <input
@@ -1596,6 +1711,83 @@ function App() {
                                     placeholder="例如：项目讨论组"
                                 />
                             </div>
+
+                            <div style={{ marginTop: 12 }}>
+                                <label
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 8,
+                                        cursor: 'pointer',
+                                        fontSize: 14,
+                                        fontWeight: 600,
+                                        color: '#334155'
+                                    }}
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={createGroupDebateMode}
+                                        onChange={(e) => {
+                                            setCreateGroupDebateMode(e.target.checked);
+                                            setGroupModalError('');
+                                        }}
+                                    />
+                                    创建为 AI 辩论群
+                                </label>
+                            </div>
+
+                            {createGroupDebateMode && (
+                                <>
+                                    <div className="input-group" style={{ marginTop: 12 }}>
+                                        <label>辩题</label>
+                                        <input
+                                            className="input-field"
+                                            value={debateTopic}
+                                            onChange={(e) => {
+                                                setDebateTopic(e.target.value);
+                                                setGroupModalError('');
+                                            }}
+                                            placeholder="例如：人工智能是否威胁人类就业"
+                                        />
+                                    </div>
+                                    <div style={{ fontSize: 12, fontWeight: 700, color: '#64748b', marginTop: 10 }}>
+                                        正方辩手人设（一辩 / 二辩 / 三辩）
+                                    </div>
+                                    {([0, 1, 2] as const).map((i) => (
+                                        <input
+                                            key={`aff-${i}`}
+                                            className="input-field"
+                                            style={{ marginTop: 6 }}
+                                            value={affPersonas[i]}
+                                            onChange={(e) => {
+                                                const next: [string, string, string] = [...affPersonas];
+                                                next[i] = e.target.value;
+                                                setAffPersonas(next);
+                                                setGroupModalError('');
+                                            }}
+                                            placeholder={`正方${i === 0 ? '一' : i === 1 ? '二' : '三'}辩人设`}
+                                        />
+                                    ))}
+                                    <div style={{ fontSize: 12, fontWeight: 700, color: '#64748b', marginTop: 10 }}>
+                                        反方辩手人设
+                                    </div>
+                                    {([0, 1, 2] as const).map((i) => (
+                                        <input
+                                            key={`neg-${i}`}
+                                            className="input-field"
+                                            style={{ marginTop: 6 }}
+                                            value={negPersonas[i]}
+                                            onChange={(e) => {
+                                                const next: [string, string, string] = [...negPersonas];
+                                                next[i] = e.target.value;
+                                                setNegPersonas(next);
+                                                setGroupModalError('');
+                                            }}
+                                            placeholder={`反方${i === 0 ? '一' : i === 1 ? '二' : '三'}辩人设`}
+                                        />
+                                    ))}
+                                </>
+                            )}
 
                             <div style={{ marginTop: 10 }}>
                                 <div style={{ fontSize: 13, fontWeight: 700, color: '#64748b', marginBottom: 8 }}>
@@ -1642,10 +1834,11 @@ function App() {
                                     })}
                                 </div>
                             </div>
+                            </div>
 
                             <button
                                 className="primary-btn"
-                                style={{ marginTop: 16 }}
+                                style={{ marginTop: 16, flexShrink: 0 }}
                                 onClick={handleCreateGroup}
                                 disabled={groupCandidates.length === 0}
                             >
@@ -3338,6 +3531,7 @@ function App() {
                                     <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
                                     {currentChat?.type === 'group' && (
                                         <>
+                                            {!currentChat.debateConfig && (
                                             <button
                                                 type="button"
                                                 className="icon-btn"
@@ -3348,6 +3542,7 @@ function App() {
                                             >
                                                 {groupSummaryState.loading ? <Loader2 size={15} className="summary-loader-spin" /> : <FileText size={15} />}
                                             </button>
+                                            )}
                                             <button
                                                 className="icon-btn"
                                                 style={{ padding: '6px 10px', borderRadius: 10, fontSize: 12, border: '1px solid rgba(148,163,184,0.3)' }}
@@ -3432,10 +3627,15 @@ function App() {
                                                     senderAvatar = user?.avatar || undefined;
                                                     senderName = user?.displayName || 'Me';
                                                 } else if (currentChat.type === 'group') {
-                                                    const sender = getUserInfo(message.senderId);
-                                                    if (sender) {
-                                                        senderAvatar = sender.avatar || undefined;
-                                                        senderName = sender.displayName;
+                                                    if (message.debate) {
+                                                        senderName = formatDebateSpeakerLabel(message);
+                                                        senderAvatar = undefined;
+                                                    } else {
+                                                        const sender = getUserInfo(message.senderId);
+                                                        if (sender) {
+                                                            senderAvatar = sender.avatar || undefined;
+                                                            senderName = sender.displayName;
+                                                        }
                                                     }
                                                 } else {
                                                     senderAvatar = currentChatInfo?.avatarUrl || undefined;
@@ -3443,6 +3643,9 @@ function App() {
                                                 }
 
                                                 const displayAvatar = senderAvatar;
+                                                const avatarFallbackChar = message.debate
+                                                    ? (message.debate.side === 'affirmative' ? '正' : '反')
+                                                    : senderName.charAt(0).toUpperCase();
 
                                                 return (
                                                     <div
@@ -3483,11 +3686,18 @@ function App() {
                                                         ) : (
                                                             <>
                                                                 {/* [修改] 点击消息头像 -> 查看用户资料 */}
-                                                                <div className="message-avatar" title={senderName} onClick={() => handleViewUser(message.senderId)}>
+                                                                <div
+                                                                    className="message-avatar"
+                                                                    title={senderName}
+                                                                    onClick={() => {
+                                                                        if (!message.debate) handleViewUser(message.senderId);
+                                                                    }}
+                                                                    style={message.debate ? { cursor: 'default' } : undefined}
+                                                                >
                                                                     {displayAvatar ? (
                                                                         <img src={displayAvatar} alt={senderName} onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }} />
                                                                     ) : (
-                                                                        senderName.charAt(0).toUpperCase()
+                                                                        avatarFallbackChar
                                                                     )}
                                                                 </div>
                                                                 <div className="message-content">
@@ -3638,6 +3848,66 @@ function App() {
                                 )}
 
                                 <div className="chat-input-container">
+                                    {isDebateChat && (
+                                        <div
+                                            style={{
+                                                width: '100%',
+                                                marginBottom: 8,
+                                                padding: '10px 12px',
+                                                borderRadius: 12,
+                                                background: 'rgba(241,245,249,0.95)',
+                                                border: '1px solid rgba(148,163,184,0.35)',
+                                                fontSize: 13,
+                                                color: '#475569'
+                                            }}
+                                        >
+                                            <div style={{ fontWeight: 700, marginBottom: 8 }}>AI 辩论模式</div>
+                                            <div style={{ marginBottom: 10 }}>{debateStatusHint}</div>
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                                                {showDebateStart && (
+                                                    <button
+                                                        type="button"
+                                                        className="primary-btn"
+                                                        style={{ padding: '8px 14px', fontSize: 13 }}
+                                                        onClick={handleDebateStartClick}
+                                                    >
+                                                        开始辩论
+                                                    </button>
+                                                )}
+                                                {canSubmitDebateVote && (
+                                                    <>
+                                                        <button
+                                                            type="button"
+                                                            className="primary-btn"
+                                                            style={{
+                                                                padding: '8px 14px',
+                                                                fontSize: 13,
+                                                                background: 'linear-gradient(135deg, #60a5fa, #2563eb)'
+                                                            }}
+                                                            onClick={() => handleDebateVoteClick('affirmative')}
+                                                        >
+                                                            投正方胜
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            className="primary-btn"
+                                                            style={{
+                                                                padding: '8px 14px',
+                                                                fontSize: 13,
+                                                                background: 'linear-gradient(135deg, #f87171, #dc2626)'
+                                                            }}
+                                                            onClick={() => handleDebateVoteClick('negative')}
+                                                        >
+                                                            投反方胜
+                                                        </button>
+                                                    </>
+                                                )}
+                                                {debateState?.phase === 'voting' && user?.id && debateState.votes?.[user.id] && (
+                                                    <span style={{ fontSize: 12, color: '#059669' }}>您已投票</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
                                     {replyTarget && (
                                         <div style={{
                                             width: '100%',
@@ -3797,6 +4067,7 @@ function App() {
                                         className="chat-input"
                                         placeholder="说点什么..."
                                         value={inputText}
+                                        disabled={!!isDebateChat}
                                         onChange={(e) => handleInputTextChange(e.target.value)}
                                         onKeyDown={(e) => {
                                             if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && mentionSuggestions.length > 0) {
@@ -3825,8 +4096,21 @@ function App() {
                                             }
                                         }}
                                     />
-                                    <button className="icon-btn" onClick={() => setShowEmojiPicker(!showEmojiPicker)} ref={emojiBtnRef}><Smile size={20}/></button>
-                                    <button className="send-btn" onClick={handleSendMessage} disabled={!inputText.trim()}><Send size={20}/></button>
+                                    <button
+                                        className="icon-btn"
+                                        onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                                        ref={emojiBtnRef}
+                                        disabled={!!isDebateChat}
+                                    >
+                                        <Smile size={20}/>
+                                    </button>
+                                    <button
+                                        className="send-btn"
+                                        onClick={handleSendMessage}
+                                        disabled={!!isDebateChat || !inputText.trim()}
+                                    >
+                                        <Send size={20}/>
+                                    </button>
                                 </div>
                             </>
                         ) : (<div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100%',color:'#a0aec0',flexDirection:'column',gap:10}}><img src="/logo192.png" width="64" style={{opacity:0.5}} alt=""/><p>选择一个聊天开始对话</p></div>)}
