@@ -411,13 +411,22 @@ interface ChatProviderProps { children: ReactNode; }
 export function ChatProvider({ children }: ChatProviderProps) {
     const [state, dispatch] = useReducer(chatReducer, initialState);
     const fetchingIds = useRef<Set<string>>(new Set());
-    const latestStateRef = useRef<{ chats: Chat[]; currentChat: Chat | null }>({
+    const latestStateRef = useRef<{
+        chats: Chat[];
+        currentChat: Chat | null;
+        messages: Message[];
+    }>({
         chats: [],
-        currentChat: null
+        currentChat: null,
+        messages: []
     });
 
     useEffect(() => {
-        latestStateRef.current = { chats: state.chats, currentChat: state.currentChat };
+        latestStateRef.current = {
+            chats: state.chats,
+            currentChat: state.currentChat,
+            messages: state.messages
+        };
     });
 
     const getUserInfo = (userId: string) => {
@@ -564,12 +573,9 @@ export function ChatProvider({ children }: ChatProviderProps) {
             const fallback =
                 list.find((c) => c.id === parsedChat.id) ?? (cur?.id === parsedChat.id ? cur : undefined);
             const merged = mergeDebateFields(parsedChat, fallback);
-            console.log('[debate][ChatContext] chat_messages_loaded', {
-                chatId: merged.id,
-                fromServer: { hasConfig: !!parsedChat.debateConfig, hasState: !!parsedChat.debateState },
-                fallbackHad: { hasConfig: !!fallback?.debateConfig, hasState: !!fallback?.debateState },
-                merged: { hasConfig: !!merged.debateConfig, phase: merged.debateState?.phase }
-            });
+            if (process.env.NODE_ENV === 'development') {
+                console.log('[debate][ChatContext] chat_messages_loaded', merged.id, merged.debateState?.phase);
+            }
             dispatch({ type: 'SET_CURRENT_CHAT', payload: merged });
             dispatch({ type: 'SET_MESSAGES', payload: { messages, hasMore: true } });
             recoverToLatestWindowIfNeeded(merged, messages);
@@ -580,13 +586,9 @@ export function ChatProvider({ children }: ChatProviderProps) {
         socketService.onGroupCreated((chat) => dispatch({ type: 'ADD_CHAT', payload: parseChat(chat) }));
         socketService.onGroupCreatedSuccess((chat) => {
             const parsedChat = parseChat(chat);
-            console.log('[debate][ChatContext] group_created_success', {
-                chatId: parsedChat.id,
-                hasDebateConfig: !!parsedChat.debateConfig,
-                hasDebateState: !!parsedChat.debateState,
-                phase: parsedChat.debateState?.phase,
-                topic: parsedChat.debateConfig?.topic?.slice(0, 40)
-            });
+            if (process.env.NODE_ENV === 'development') {
+                console.log('[debate] group_created_success', parsedChat.id, parsedChat.debateState?.phase);
+            }
             dispatch({ type: 'ADD_CHAT', payload: parsedChat });
             setCurrentChat(parsedChat);
         });
@@ -649,11 +651,6 @@ export function ChatProvider({ children }: ChatProviderProps) {
         socketService.onAiStreamEnd(({ message }) => dispatch({ type: 'AI_STREAM_END', payload: message }));
         socketService.onDebateStateUpdated(({ chat }) => {
             const c = parseChat(chat);
-            console.log('[debate][ChatContext] debate_state_updated', {
-                chatId: c.id,
-                phase: c.debateState?.phase,
-                hasConfig: !!c.debateConfig
-            });
             dispatch({ type: 'UPDATE_CHAT', payload: c });
         });
         socketService.onUserProfileUpdated((updatedUser) => {
@@ -686,10 +683,6 @@ export function ChatProvider({ children }: ChatProviderProps) {
             const token = apiService.getToken();
             const cachedUser = apiService.getUser();
 
-            console.log('=== INITIALIZATION DEBUG ===');
-            console.log('Token found:', !!token);
-            console.log('Cached user:', cachedUser);
-
             if (token && cachedUser) {
                 if (!cachedUser.id) {
                     console.error('Cached user has no ID, clearing cache and forcing logout');
@@ -700,7 +693,6 @@ export function ChatProvider({ children }: ChatProviderProps) {
 
                 try {
                     const freshUserData = await apiService.getUserById(cachedUser.id);
-                    console.log('Fresh user data from server:', freshUserData);
 
                     if (!freshUserData || !freshUserData.id) {
                         console.error('Invalid fresh user data received, using cached user');
@@ -796,16 +788,29 @@ export function ChatProvider({ children }: ChatProviderProps) {
     };
 
     const setCurrentChat = (chat: Chat | null, options?: { aroundMessageId?: string }) => {
-        console.log('[ChatContext] setCurrentChat 调用:', { chatId: chat?.id, aroundMessageId: options?.aroundMessageId });
-        dispatch({ type: 'SET_CURRENT_CHAT', payload: chat });
-        if (chat) {
+        if (!chat) {
+            dispatch({ type: 'SET_CURRENT_CHAT', payload: null });
+            localStorage.removeItem('lastActiveChatId');
+            return;
+        }
+
+        const { currentChat, messages } = latestStateRef.current;
+        const sameOpenChat =
+            currentChat?.id === chat.id && !options?.aroundMessageId && messages.length > 0;
+
+        if (sameOpenChat) {
+            dispatch({ type: 'UPDATE_CHAT', payload: chat });
             markMessagesAsRead(chat.id);
             dispatch({ type: 'CLEAR_CURRENT_CHAT_UNREAD' });
             localStorage.setItem('lastActiveChatId', chat.id);
-            socketService.getChatMessages(chat.id, options?.aroundMessageId);
-        } else {
-            localStorage.removeItem('lastActiveChatId');
+            return;
         }
+
+        dispatch({ type: 'SET_CURRENT_CHAT', payload: chat });
+        markMessagesAsRead(chat.id);
+        dispatch({ type: 'CLEAR_CURRENT_CHAT_UNREAD' });
+        localStorage.setItem('lastActiveChatId', chat.id);
+        socketService.getChatMessages(chat.id, options?.aroundMessageId);
     };
 
     const sendMessage = (chatId: string, content: string, type = 'text', replyToId?: string) => {
