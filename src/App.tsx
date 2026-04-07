@@ -1479,16 +1479,21 @@ function App() {
         debateState?.phase === 'voting' &&
         !!user?.id &&
         !debateState?.votes?.[user.id];
+    const judgeVerdictLabel = (v: 'affirmative' | 'negative' | 'tie' | undefined) =>
+        v === 'affirmative' ? '正方' : v === 'negative' ? '反方' : v === 'tie' ? '平局' : '';
+
     const debateStatusHint =
         debateState?.phase === 'debating'
             ? `AI 辩论进行中（进度 ${Math.min(debateState.currentTurnIndex, 6)}/6）`
-            : debateState?.phase === 'pending'
-              ? '等待群主点击「开始辩论」'
-              : debateState?.phase === 'voting'
-                ? '辩论发言已结束，请投票'
-                : debateState?.phase === 'closed'
-                  ? `投票已结束${debateState.winner === 'tie' ? '（平局）' : debateState.winner === 'affirmative' ? '（正方胜）' : debateState.winner === 'negative' ? '（反方胜）' : ''}`
-                  : '';
+            : debateState?.phase === 'judging'
+              ? 'PigSail 裁判正在评议…'
+              : debateState?.phase === 'pending'
+                ? '等待群主点击「开始辩论」'
+                : debateState?.phase === 'voting'
+                  ? '发言与裁判点评已结束，请投票'
+                  : debateState?.phase === 'closed'
+                    ? `投票已结束${debateState.winner === 'tie' ? '（平局）' : debateState.winner === 'affirmative' ? '（正方胜）' : debateState.winner === 'negative' ? '（反方胜）' : ''}${debateState.judgeVerdict ? ` · PigSail裁定：${judgeVerdictLabel(debateState.judgeVerdict)}` : ''}`
+                    : '';
 
     const handleDebateStartClick = async () => {
         if (!currentChat?.id) return;
@@ -3634,7 +3639,9 @@ function App() {
                                                         const sender = getUserInfo(message.senderId);
                                                         if (sender) {
                                                             senderAvatar = sender.avatar || undefined;
-                                                            senderName = sender.displayName;
+                                                            senderName = message.debateJudge
+                                                                ? `${sender.displayName}（裁判）`
+                                                                : sender.displayName;
                                                         }
                                                     }
                                                 } else {
@@ -3645,7 +3652,9 @@ function App() {
                                                 const displayAvatar = senderAvatar;
                                                 const avatarFallbackChar = message.debate
                                                     ? (message.debate.side === 'affirmative' ? '正' : '反')
-                                                    : senderName.charAt(0).toUpperCase();
+                                                    : message.debateJudge
+                                                      ? '裁'
+                                                      : senderName.charAt(0).toUpperCase();
 
                                                 return (
                                                     <div

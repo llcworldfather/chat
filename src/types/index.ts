@@ -21,7 +21,7 @@ export interface DebateConfig {
     negativePersonas: [string, string, string];
 }
 
-export type DebatePhase = 'pending' | 'debating' | 'voting' | 'closed';
+export type DebatePhase = 'pending' | 'debating' | 'judging' | 'voting' | 'closed';
 
 export interface DebateState {
     phase: DebatePhase;
@@ -29,6 +29,7 @@ export interface DebateState {
     votes: Record<string, 'affirmative' | 'negative'>;
     voteCounts?: { affirmative: number; negative: number };
     winner?: 'affirmative' | 'negative' | 'tie';
+    judgeVerdict?: 'affirmative' | 'negative' | 'tie';
 }
 
 export interface Message {
@@ -45,6 +46,7 @@ export interface Message {
     reactions: Record<string, string[]>;
     isStreaming?: boolean;   // true while the AI is still writing
     debate?: DebateMessageMeta;
+    debateJudge?: boolean;
 }
 
 export interface Chat {
