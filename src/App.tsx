@@ -5,6 +5,7 @@ import { socketService } from './services/socket';
 import { formatMessageDate } from './utils/timeUtils';
 import type { Chat, SocketUser, User } from './types';
 import { isDesktopNotifyEnabled, setDesktopNotifyEnabled } from './utils/desktopNotifyPrefs';
+import { initFcmAndRegisterToken } from './services/fcm';
 import { setBossKeyTitleLocked } from './utils/bossKeyTitleLock';
 import { MarkdownBoldText } from './components/MarkdownBoldText';
 import './index.css';
@@ -230,12 +231,18 @@ function App() {
         }
         if (notificationPermission === 'default') {
             const r = await Notification.requestPermission();
-            if (r === 'granted') setDesktopNotifyEnabled(true);
+            if (r === 'granted') {
+                setDesktopNotifyEnabled(true);
+                void initFcmAndRegisterToken();
+            }
             bumpNotifyUi();
             return;
         }
         if (desktopNotifyOn) setDesktopNotifyEnabled(false);
-        else setDesktopNotifyEnabled(true);
+        else {
+            setDesktopNotifyEnabled(true);
+            void initFcmAndRegisterToken();
+        }
         bumpNotifyUi();
     }, [notificationPermission, desktopNotifyOn]);
 

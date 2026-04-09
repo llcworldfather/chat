@@ -11,6 +11,7 @@ import {
 import { useChat } from '../../context/ChatContext';
 import { formatTime } from '../../utils/timeUtils';
 import { isDesktopNotifyEnabled, setDesktopNotifyEnabled } from '../../utils/desktopNotifyPrefs';
+import { initFcmAndRegisterToken } from '../../services/fcm';
 
 export function Sidebar() {
     const {
@@ -46,12 +47,18 @@ export function Sidebar() {
         }
         if (notificationPermission === 'default') {
             const r = await Notification.requestPermission();
-            if (r === 'granted') setDesktopNotifyEnabled(true);
+            if (r === 'granted') {
+                setDesktopNotifyEnabled(true);
+                void initFcmAndRegisterToken();
+            }
             bumpNotifyUi();
             return;
         }
         if (desktopNotifyOn) setDesktopNotifyEnabled(false);
-        else setDesktopNotifyEnabled(true);
+        else {
+            setDesktopNotifyEnabled(true);
+            void initFcmAndRegisterToken();
+        }
         bumpNotifyUi();
     }, [notificationPermission, desktopNotifyOn]);
 

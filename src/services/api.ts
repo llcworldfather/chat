@@ -136,6 +136,22 @@ class ApiService {
         return response.data || [];
     }
 
+    async registerFcmToken(token: string): Promise<void> {
+        await this.request<{ success: boolean }>({
+            method: 'POST',
+            url: '/users/me/fcm-token',
+            data: { token },
+        });
+    }
+
+    async unregisterFcmToken(token: string): Promise<void> {
+        await this.request<{ success: boolean }>({
+            method: 'DELETE',
+            url: '/users/me/fcm-token',
+            data: { token },
+        });
+    }
+
     async healthCheck(): Promise<any> {
         return this.request<any>({
             method: 'GET',

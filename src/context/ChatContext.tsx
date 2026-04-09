@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useReducer, useEffect, ReactNode, useRef } from 'react';
 import { socketService } from '../services/socket';
 import { apiService } from '../services/api';
+import { initFcmAndRegisterToken, unregisterFcmTokenOnLogout } from '../services/fcm';
 import {
     ChatContextType,
     User,
@@ -722,6 +723,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
                         }));
                         dispatch({ type: 'SET_ONLINE_USERS', payload: socketUsers });
                     } catch (e) {}
+                    void initFcmAndRegisterToken();
                 } catch (error) {
                     dispatch({ type: 'SET_ERROR', payload: 'Failed to connect' });
                     apiService.clearAuth();
@@ -747,6 +749,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
                 setupSocketListeners();
                 await socketService.connect();
                 dispatch({ type: 'SET_CONNECTION_STATUS', payload: true });
+                void initFcmAndRegisterToken();
             } catch (e) {}
         } catch (error) {
             dispatch({ type: 'SET_ERROR', payload: error instanceof Error ? error.message : 'Login failed' });
@@ -768,6 +771,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
                 setupSocketListeners();
                 await socketService.connect();
                 dispatch({ type: 'SET_CONNECTION_STATUS', payload: true });
+                void initFcmAndRegisterToken();
             } catch (e) {}
         } catch (error: any) {
             let msg = error instanceof Error ? error.message : 'Registration failed';
@@ -781,6 +785,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
     };
 
     const logout = () => {
+        void unregisterFcmTokenOnLogout();
         socketService.disconnect();
         apiService.clearAuth();
         localStorage.removeItem('lastActiveChatId');
