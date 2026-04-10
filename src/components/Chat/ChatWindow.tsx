@@ -509,10 +509,10 @@ export function ChatWindow() {
                                     }}
                                 >
                                     {message.type === 'system' ? (
-                                        <div className="w-full text-center my-2">
-                                            <span className="text-xs text-gray-500 italic bg-gray-100 px-3 py-1 rounded-full">
-                                                <MarkdownBoldText text={message.content} />
-                                            </span>
+                                        <div className="w-full max-w-full min-w-0 flex justify-center my-2 px-2 box-border">
+                                            <div className="max-w-full min-w-0 rounded-2xl bg-gray-100 px-3 py-2 text-xs text-gray-500 italic text-left break-words [overflow-wrap:anywhere]">
+                                                <MarkdownBoldText text={message.content} as="div" />
+                                            </div>
                                         </div>
                                     ) : (
                                         <>

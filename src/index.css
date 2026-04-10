@@ -536,18 +536,25 @@ body {
 }
 
 .system-message-wrap {
-    width: auto;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: 0 8px;
     display: flex;
     justify-content: center;
 }
 
 .system-message-pill {
     display: inline-flex;
-    align-items: center;
+    flex-wrap: wrap;
+    align-items: flex-start;
     gap: 6px;
-    max-width: none;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
     padding: 7px 12px;
-    border-radius: 999px;
+    border-radius: 16px;
     background: linear-gradient(135deg, rgba(255,255,255,0.9), rgba(255,255,255,0.75));
     border: 1px solid rgba(148, 163, 184, 0.28);
     color: #64748b;
@@ -555,11 +562,17 @@ body {
     font-weight: 600;
     letter-spacing: 0.2px;
     box-shadow: 0 6px 16px rgba(148, 163, 184, 0.12);
-    white-space: nowrap;
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: anywhere;
 }
 
 .system-message-pill span {
-    white-space: nowrap;
+    flex: 1 1 12rem;
+    min-width: 0;
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: anywhere;
 }
 
 @keyframes messageSlide {
