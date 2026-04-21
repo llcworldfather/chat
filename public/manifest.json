@@ -1,20 +1,28 @@
 {
-  "short_name": "pigsail",
-  "name": "pigsail",
+  "short_name": "Pigsail",
+  "name": "Pigsail - 免费在线聊天室",
+  "description": "Pigsail 免费在线聊天平台，支持实时群聊、AI 智能对话、匿名聊天，无需下载，打开即用。",
   "icons": [
     {
       "src": "pigsail-icon.png",
       "type": "image/png",
-      "sizes": "192x192"
+      "sizes": "192x192",
+      "purpose": "any maskable"
     },
     {
       "src": "pigsail-icon.png",
       "type": "image/png",
-      "sizes": "512x512"
+      "sizes": "512x512",
+      "purpose": "any maskable"
     }
   ],
-  "start_url": ".",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "theme_color": "#000000",
-  "background_color": "#ffffff"
+  "orientation": "portrait-primary",
+  "theme_color": "#6c63ff",
+  "background_color": "#ffffff",
+  "categories": ["social", "communication", "utilities"],
+  "lang": "zh-CN",
+  "dir": "ltr"
 }
