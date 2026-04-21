@@ -4,4 +4,4 @@ Allow: /
 Disallow: /api/
 Disallow: /private/
 
-Sitemap: https://www.pigsail.wtf/sitemap.xml
+Sitemap: https://www.pigsail.wtf/api/sitemap
